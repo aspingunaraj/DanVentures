@@ -207,3 +207,49 @@ class Broker:
             params["price"] = float(price)
 
         return self.kite.place_order(**params)
+
+
+    # ---------------------- CO exit helpers ----------------------
+    def list_orders(self):
+        """Return today's orders list (as provided by Kite)."""
+        return self.kite.orders()
+
+    def get_co_child_order_id(self, parent_order_id: str) -> str | None:
+        """
+        Find the active child SLM order id for a given CO parent.
+        For CO, the child leg is the SLM stop-loss order. Exiting CO is done by
+        exiting/cancelling this child leg (Kite then squares off the position).
+
+        Returns child order_id if found, else None.
+        """
+        orders = self.list_orders()
+        # Look for the most recent child under the parent. Status could be e.g. "TRIGGER PENDING".
+        for o in orders:
+            if str(o.get("parent_order_id") or "") == str(parent_order_id):
+                # Child leg of CO
+                # Prefer a pending/trigger-pending SLM order. If multiple, the latest is usually correct.
+                status = (o.get("status") or "").upper()
+                if status in ("TRIGGER PENDING", "OPEN", "PENDING", "AMO REQ RECEIVED"):
+                    return o.get("order_id")
+        # Fallback: return the last child we saw even if not pending (safer to None)
+        for o in reversed(orders):
+            if str(o.get("parent_order_id") or "") == str(parent_order_id):
+                return o.get("order_id")
+        return None
+
+    def exit_cover_order(self, parent_order_id: str, order_id: str | None = None) -> str:
+        """
+        Exit/square-off a Cover Order by exiting its child SLM leg.
+
+        If order_id isn't supplied, we'll fetch the child leg using parent_order_id.
+        Returns the (child) order_id that was sent for exit.
+
+        Under the hood, this uses Kite's exit_order('co', ...) which is an alias of cancel_order
+        for BO/CO. You MUST pass the correct variety='co' and include parent_order_id.
+        """
+        if order_id is None:
+            order_id = self.get_co_child_order_id(parent_order_id)
+            if not order_id:
+                raise RuntimeError(f"Couldn't find CO child order for parent {parent_order_id}")
+        # This triggers square-off of the CO position on Kite side
+        return self.kite.exit_order(variety="co", order_id=str(order_id), parent_order_id=str(parent_order_id))

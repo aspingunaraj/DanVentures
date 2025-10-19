@@ -79,4 +79,10 @@ CONFIG = {
     # ---------- LOGGING / DEBUG ----------
     "log_signals": True,                # log evaluated signals
     "log_rejections": True,             # log why a setup was rejected
+
+        # ---------- EXITS ----------
+    # Profit target in % (e.g., 0.001 = 0.10%)
+    "target_pct": 0.001,
+    # time_stop_seconds already present above; used as time-based exit
+
 }
