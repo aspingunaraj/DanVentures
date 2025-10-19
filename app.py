@@ -3,20 +3,17 @@ from core.broker import Broker
 import pprint
 
 def main():
-    cfg = load_config()
-    b = Broker(
-        api_key=cfg["broker"]["api_key"],
-        api_secret=cfg["broker"]["api_secret"],
-        redirect_uri=cfg["broker"]["redirect_uri"],
-        tokens_path=str(TOKENS_PATH),
-    )
-    access_token = b.login()
-    print("✅ Logged in. access_token saved to tokens.json")
+    b = Broker(...)
+    token = b.load_access_token()
+    if token:
+        try:
+            b.kite.set_access_token(token)
+            # optional, but ignore failures:
+            _ = b.profile()
+        except Exception:
+            pass
+    # start whatever CLI you want, or just return
 
-    # Sanity check: fetch profile
-    prof = b.profile()
-    print("Profile:")
-    pprint.pprint(prof)
-
-if __name__ == "__main__":
+if __name__ == "__main__":   # ✅ only runs when invoked directly
     main()
+
