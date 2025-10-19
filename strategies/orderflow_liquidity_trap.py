@@ -12,6 +12,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
     Intraday scalping: Order Flow + Momentum + Liquidity Trap.
     Needs MODE_FULL ticks (depth).
     Enters with CO; exits by exiting the CO child (via Broker helper).
+    Emits per-evaluation diagnostics via self.ctx.report(symbol, diag).
     """
 
     def __init__(self, symbol: str, context, overrides: Dict[str, Any] | None = None):
@@ -59,14 +60,27 @@ class OrderFlowLiquidityTrap(StrategyBase):
 
         depth = tick.get("depth") or {}
         best_bid, best_ask, buy_levels, sell_levels = self._best_depth(depth)
+        now_dt = dt.datetime.now(self.ctx.tz)
 
         # Spread & jump filter
+        spread_ok = True
+        jump_ok = True
         if best_bid and best_ask:
             mid = 0.5 * (best_bid + best_ask)
             spread_pct = (best_ask - best_bid) / mid if mid else 0.0
             if spread_pct > self.cfg["max_spread_pct"]:
+                spread_ok = False
                 if self.cfg["log_rejections"]:
                     self.ctx.log(f"[{self.symbol}] Reject: spread too wide {spread_pct:.4%}")
+                # Emit a diagnostic showing why we skipped
+                self._emit_diag(
+                    when_ts=now_dt, lp=lp, vwap=(self.vwap_history[-1] if self.vwap_history else lp),
+                    spread_ok=False, jump_ok=True,
+                    session_ok=None, vwap_ok=None,
+                    imb_avg=None, depth_ratio=None, delta_slope="flat", momentum_code="-",
+                    absorption_ok=False, long_ok=False, short_ok=False,
+                    decision_action="HOLD", position_state=(self.position or "FLAT"),
+                )
                 # If we ARE IN a position and spread widens dangerously -> exit for safety
                 if self.position and self._should_exit_on_spread(spread_pct):
                     self._exit(reason=f"spread {spread_pct:.4%} > limit")
@@ -76,8 +90,17 @@ class OrderFlowLiquidityTrap(StrategyBase):
             if self.prices:
                 jump_bps = abs(lp - self.prices[-1]) / self.prices[-1] * 10000
                 if jump_bps > self.cfg["max_tick_jump_bps"]:
+                    jump_ok = False
                     if self.cfg["log_rejections"]:
                         self.ctx.log(f"[{self.symbol}] Reject: tick jump {jump_bps:.2f} bps too large")
+                    self._emit_diag(
+                        when_ts=now_dt, lp=lp, vwap=(self.vwap_history[-1] if self.vwap_history else lp),
+                        spread_ok=True, jump_ok=False,
+                        session_ok=None, vwap_ok=None,
+                        imb_avg=None, depth_ratio=None, delta_slope="flat", momentum_code="-",
+                        absorption_ok=False, long_ok=False, short_ok=False,
+                        decision_action="HOLD", position_state=(self.position or "FLAT"),
+                    )
                     # Also consider safety exit on extreme volatility
                     if self.position and jump_bps > (self.cfg["max_tick_jump_bps"] * 2):
                         self._exit(reason=f"vol spike {jump_bps:.1f}bps")
@@ -121,13 +144,45 @@ class OrderFlowLiquidityTrap(StrategyBase):
         # If IN position -> check exits first (target, time stop, opposite flow)
         if self.position:
             if self._should_exit_now(lp, bid_qty, ask_qty):
+                # Emit EXIT decision snapshot before exiting
+                self._emit_diag(
+                    when_ts=now_dt, lp=lp, vwap=vwap,
+                    spread_ok=spread_ok, jump_ok=jump_ok,
+                    session_ok=True, vwap_ok=True,
+                    imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw) if self.imbalance_raw else None),
+                    depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                    delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                    momentum_code=self._momentum_code(),
+                    absorption_ok=any(self._absorption_ok()),
+                    long_ok=False, short_ok=False,
+                    decision_action="EXIT", position_state=(self.position or "FLAT"),
+                )
                 self._exit(reason="exit signal/target/time stop")
             return
 
-        # Filters
-        if not self._session_filters_pass():
+        # Filters (evaluate and emit if failing)
+        session_ok = self._session_filters_pass()
+        if not session_ok:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=False, vwap_ok=None,
+                imb_avg=None, depth_ratio=None, delta_slope="flat", momentum_code="-",
+                absorption_ok=False, long_ok=False, short_ok=False,
+                decision_action="HOLD", position_state=(self.position or "FLAT"),
+            )
             return
-        if self.cfg["use_vwap_filter"] and not self._vwap_filter_pass(lp):
+
+        vwap_ok = (not self.cfg["use_vwap_filter"]) or self._vwap_filter_pass(lp)
+        if self.cfg["use_vwap_filter"] and not vwap_ok:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=False,
+                imb_avg=None, depth_ratio=None, delta_slope="flat", momentum_code="-",
+                absorption_ok=False, long_ok=False, short_ok=False,
+                decision_action="HOLD", position_state=(self.position or "FLAT"),
+            )
             return
 
         # Signals
@@ -136,16 +191,80 @@ class OrderFlowLiquidityTrap(StrategyBase):
             self.ctx.log(f"[{self.symbol}] sig long={long_ok} short={short_ok} :: {', '.join(reasons)}")
 
         # Cooldown / trade cap
-        now_ts = dt.datetime.now().timestamp()
+        now_ts = now_dt.timestamp()
         if self.last_entry_ts and (now_ts - self.last_entry_ts) < self.cfg["cooldown_seconds"]:
-            return
-        if self.trades_taken >= self.cfg["max_trades_per_session"]:
+            # Emit HOLD due to cooldown
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=True,
+                imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw)),
+                depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                momentum_code=self._momentum_code(),
+                absorption_ok=any(self._absorption_ok()),
+                long_ok=long_ok, short_ok=short_ok,
+                decision_action="HOLD", position_state=(self.position or "FLAT"),
+            )
             return
 
+        if self.trades_taken >= self.cfg["max_trades_per_session"]:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=True,
+                imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw)),
+                depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                momentum_code=self._momentum_code(),
+                absorption_ok=any(self._absorption_ok()),
+                long_ok=long_ok, short_ok=short_ok,
+                decision_action="HOLD", position_state=(self.position or "FLAT"),
+            )
+            return
+
+        # Decide + emit + act
         if long_ok:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=True,
+                imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw)),
+                depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                momentum_code=self._momentum_code(),
+                absorption_ok=any(self._absorption_ok()),
+                long_ok=True, short_ok=False,
+                decision_action="ENTER_LONG", position_state=(self.position or "FLAT"),
+            )
             self._enter(side="BUY", price=lp)
         elif short_ok:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=True,
+                imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw)),
+                depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                momentum_code=self._momentum_code(),
+                absorption_ok=any(self._absorption_ok()),
+                long_ok=False, short_ok=True,
+                decision_action="ENTER_SHORT", position_state=(self.position or "FLAT"),
+            )
             self._enter(side="SELL", price=lp)
+        else:
+            self._emit_diag(
+                when_ts=now_dt, lp=lp, vwap=vwap,
+                spread_ok=spread_ok, jump_ok=jump_ok,
+                session_ok=True, vwap_ok=True,
+                imb_avg=(sum(self.imbalance_raw) / len(self.imbalance_raw)),
+                depth_ratio=(bid_qty / max(1.0, ask_qty) if (bid_qty and ask_qty) else None),
+                delta_slope=self._delta_slope_tag(self.cfg["delta_trend_ticks"]),
+                momentum_code=self._momentum_code(),
+                absorption_ok=any(self._absorption_ok()),
+                long_ok=False, short_ok=False,
+                decision_action="HOLD", position_state=(self.position or "FLAT"),
+            )
 
     # ------------------- Entry / Exit -------------------
     def _enter(self, side: str, price: float):
@@ -158,7 +277,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
 
         self.position = "LONG" if side == "BUY" else "SHORT"
         self.entry_price = float(price)
-        self.last_entry_ts = dt.datetime.now().timestamp()
+        self.last_entry_ts = dt.datetime.now(self.ctx.tz).timestamp()
         self.trades_taken += 1
 
         if dry:
@@ -233,7 +352,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
         # Time stop
         ts = float(self.cfg.get("time_stop_seconds", 0)) or 0.0
         if ts > 0 and self.last_entry_ts:
-            if (dt.datetime.now().timestamp() - self.last_entry_ts) >= ts:
+            if (dt.datetime.now(self.ctx.tz).timestamp() - self.last_entry_ts) >= ts:
                 self.ctx.log(f"[{self.symbol}] time stop reached {ts}s")
                 return True
 
@@ -277,7 +396,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
         dec = all(s[i] > s[i+1] for i in range(len(s)-1))
         return (self.position == "LONG" and dec) or (self.position == "SHORT" and inc)
 
-    # ------------------- Signals (unchanged from earlier idea) -------------------
+    # ------------------- Signals -------------------
     def _signals(self, lp, bid_qty, ask_qty):
         reasons = []
         hh_hl = self._is_hh_hl(self.prices) if self.cfg["require_hh_hl_for_long"] else True
@@ -312,34 +431,82 @@ class OrderFlowLiquidityTrap(StrategyBase):
                        f"hh_hl={hh_hl} ll_lh={ll_lh} vwap={vwap:.2f}")
         return long_ok, short_ok, reasons
 
-    # ------------------- Filters (same as before) -------------------
+    # ------------------- Filters -------------------
     def _session_filters_pass(self) -> bool:
-        now = dt.datetime.now()
+        now = dt.datetime.now(self.ctx.tz)
         mkt_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
         if (now - mkt_open).total_seconds() < self.cfg["skip_first_minutes"] * 60:
             return False
+
         def _in_range(t, s):
-            h, m = map(int, s.split(":")); return t.hour > h or (t.hour == h and t.minute >= m)
+            h, m = map(int, s.split(":"))
+            return t.hour > h or (t.hour == h and t.minute >= m)
+
         def _before(t, s):
-            h, m = map(int, s.split(":")); return t.hour < h or (t.hour == h and t.minute < m)
+            h, m = map(int, s.split(":"))
+            return t.hour < h or (t.hour == h and t.minute < m)
+
         if _in_range(now, self.cfg["lunch_skip_start"]) and _before(now, self.cfg["lunch_skip_end"]):
             return False
+
         if self.cfg["use_best_windows"]:
             ok = False
             for a, b in self.cfg["best_windows"]:
                 if _in_range(now, a) and _before(now, b):
-                    ok = True; break
-            if not ok: return False
+                    ok = True
+                    break
+            if not ok:
+                return False
         return True
 
     def _vwap_filter_pass(self, last_price: float) -> bool:
-        if not self.vwap_history: return False
+        if not self.vwap_history:
+            return False
         vwap = self.vwap_history[-1]
         slope_up = vwap > self.vwap_history[0]
         slope_dn = vwap < self.vwap_history[0]
         above = last_price > vwap
         below = last_price < vwap
         return (above and slope_up) or (below and slope_dn)
+
+    # ------------------- Diagnostics helper -------------------
+    def _emit_diag(self, when_ts, lp, vwap, spread_ok, jump_ok, session_ok, vwap_ok,
+                   imb_avg, depth_ratio, delta_slope, momentum_code, absorption_ok,
+                   long_ok, short_ok, decision_action, position_state):
+        try:
+            diag = {
+                "ts": when_ts.isoformat(),
+                "symbol": self.symbol,
+                "price": round(lp, 2) if lp is not None else None,
+                "vwap": round(vwap, 2) if vwap is not None else None,
+                "metrics": {
+                    "imb_avg": round(imb_avg, 2) if imb_avg is not None else None,
+                    "depth_ratio": round(depth_ratio, 2) if depth_ratio is not None else None,
+                    "delta_slope": delta_slope,         # "up"|"down"|"flat"
+                    "momentum": momentum_code,          # "HHHL"|"LLLH"|"-"
+                    "absorption": bool(absorption_ok),
+                },
+                "filters": {
+                    "session_ok": (None if session_ok is None else bool(session_ok)),
+                    "vwap_ok": (None if vwap_ok is None else bool(vwap_ok)),
+                    "spread_ok": bool(spread_ok),
+                    "jump_ok": bool(jump_ok),
+                },
+                "signals": {
+                    "long_ok": bool(long_ok),
+                    "short_ok": bool(short_ok),
+                },
+                "decision": {
+                    "action": decision_action  # "ENTER_LONG"|"ENTER_SHORT"|"EXIT"|"HOLD"
+                },
+                "position": {
+                    "state": position_state,   # "FLAT"|"LONG"|"SHORT"
+                    "entry_price": self.entry_price,
+                }
+            }
+            self.ctx.report(self.symbol, diag)
+        except Exception as e:
+            self.ctx.log(f"[{self.symbol}] diag emit failed: {e}")
 
     # ------------------- Small utilities -------------------
     @staticmethod
@@ -356,35 +523,42 @@ class OrderFlowLiquidityTrap(StrategyBase):
 
     @staticmethod
     def _safe_float(x, default=None):
-        try: return float(x)
-        except Exception: return default
+        try:
+            return float(x)
+        except Exception:
+            return default
 
     @staticmethod
     def _is_hh_hl(prices: Deque[float]) -> bool:
-        if len(prices) < 4: return False
+        if len(prices) < 4:
+            return False
         p = list(prices)[-4:]
         return (p[1] > p[0]) and (p[2] > p[1]) and (p[3] > p[2]) and (min(p[1], p[2], p[3]) > p[0])
 
     @staticmethod
     def _is_ll_lh(prices: Deque[float]) -> bool:
-        if len(prices) < 4: return False
+        if len(prices) < 4:
+            return False
         p = list(prices)[-4:]
         return (p[1] < p[0]) and (p[2] < p[1]) and (p[3] < p[2]) and (max(p[1], p[2], p[3]) < p[0])
 
     @staticmethod
     def _is_strictly_increasing(seq: Deque[float], k: int) -> bool:
-        if len(seq) < k: return False
+        if len(seq) < k:
+            return False
         s = list(seq)[-k:]
         return all(s[i] < s[i+1] for i in range(len(s)-1))
 
     @staticmethod
     def _is_strictly_decreasing(seq: Deque[float], k: int) -> bool:
-        if len(seq) < k: return False
+        if len(seq) < k:
+            return False
         s = list(seq)[-k:]
         return all(s[i] > s[i+1] for i in range(len(s)-1))
 
     def _absorption_ok(self):
-        if len(self.abs_range_prices) < max(3, int(self.cfg["absorption_window"])): return (False, False)
+        if len(self.abs_range_prices) < max(3, int(self.cfg["absorption_window"])):
+            return (False, False)
         rng = max(self.abs_range_prices) - min(self.abs_range_prices)
         mid = 0.5 * (max(self.abs_range_prices) + min(self.abs_range_prices))
         rng_bps = (rng / mid * 10000) if mid else 0.0
@@ -392,3 +566,20 @@ class OrderFlowLiquidityTrap(StrategyBase):
         ok = (traded >= self.cfg["absorption_min_traded_qty"]) and \
              (rng_bps <= self.cfg["absorption_max_price_range_bps"])
         return (ok, ok)
+
+    # derived tags for telemetry
+    def _delta_slope_tag(self, k: int) -> str:
+        inc = self._is_strictly_increasing(self.delta_raw, k)
+        dec = self._is_strictly_decreasing(self.delta_raw, k)
+        if inc:
+            return "up"
+        if dec:
+            return "down"
+        return "flat"
+
+    def _momentum_code(self) -> str:
+        if self._is_hh_hl(self.prices):
+            return "HHHL"
+        if self._is_ll_lh(self.prices):
+            return "LLLH"
+        return "-"

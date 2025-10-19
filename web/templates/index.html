@@ -56,125 +56,209 @@
     </div>
   </div>
 
-  <div class="card shadow-sm">
+  <!-- Latest Prices (unchanged) -->
+  <div class="card shadow-sm mb-4">
     <div class="card-body">
-      <h5 class="card-title">Latest Prices & Full Tick</h5>
+      <h5 class="card-title">Latest Prices</h5>
       <table class="table table-sm align-middle" id="ticks-table">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Last Price</th>
-            <th style="width: 1%;">Details</th>
-          </tr>
-        </thead>
-        <tbody id="ticks-body">
+        <thead><tr><th>Symbol</th><th>Last Price</th></tr></thead>
+        <tbody>
           {% for s in symbols %}
-            <tr>
-              <td>{{ s }}</td>
-              <td>{{ last.get(s, '-') }}</td>
-              <td>
-                <button class="btn btn-sm btn-outline-secondary" onclick="showLast50('{{ s }}')">
-                  View last 50
-                </button>
-              </td>
-            </tr>
+            <tr><td>{{ s }}</td><td>{{ last.get(s, '-') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
       <div class="text-muted small">Auto-refreshing every 2 seconds.</div>
     </div>
   </div>
+
+  <!-- Strategy Telemetry -->
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="d-flex align-items-center mb-2">
+        <h5 class="card-title mb-0">Strategy Telemetry</h5>
+        <span class="ms-2 badge bg-info">live</span>
+      </div>
+
+      <table class="table table-sm align-middle" id="diag-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Time</th>
+            <th class="text-end">Price</th>
+            <th class="text-end">VWAP</th>
+            <th class="text-end">Imb</th>
+            <th class="text-end">Depth R</th>
+            <th>Δ</th>
+            <th>Mom</th>
+            <th>Abs</th>
+            <th>Filters</th>
+            <th>Signal</th>
+            <th>Decision</th>
+            <th>Pos</th>
+          </tr>
+        </thead>
+        <tbody><!-- populated by JS --></tbody>
+      </table>
+      <div class="text-muted small">Click a row to view the last 20 evaluations.</div>
+    </div>
+  </div>
 </div>
 
-<!-- Modal to show full tick payloads -->
-<div class="modal fade" id="last50Modal" tabindex="-1" aria-hidden="true">
+<!-- Modal: per-symbol history -->
+<div class="modal fade" id="histModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="last50Title">Last 50 ticks</h5>
+        <h6 class="modal-title" id="histTitle">History</h6>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-          <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-primary" id="copyJsonBtn">Copy JSON</button>
-            <button class="btn btn-sm btn-outline-secondary" id="togglePrettyBtn">Toggle pretty</button>
-          </div>
-        </div>
-        <pre id="last50Content" class="bg-light p-3 border rounded" style="max-height:65vh; overflow:auto;"></pre>
+        <table class="table table-sm" id="hist-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th class="text-end">Price</th>
+              <th class="text-end">VWAP</th>
+              <th class="text-end">Imb</th>
+              <th class="text-end">Depth R</th>
+              <th>Δ</th>
+              <th>Mom</th>
+              <th>Abs</th>
+              <th>Filters</th>
+              <th>Signal</th>
+              <th>Decision</th>
+              <th>Pos</th>
+            </tr>
+          </thead>
+          <tbody><!-- populated by JS --></tbody>
+        </table>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-async function refresh() {
+async function refreshPrices() {
   try {
     const res = await fetch("{{ url_for('feed_status') }}");
     const data = await res.json();
-    const tbody = document.querySelector("#ticks-body");
+    const tbody = document.querySelector("#ticks-table tbody");
     const rows = [];
     const last = data.last || {};
     const symbols = Object.keys(last).sort();
     for (const s of symbols) {
-      rows.push(
-        `<tr>
-           <td>${s}</td>
-           <td>${last[s]}</td>
-           <td><button class="btn btn-sm btn-outline-secondary" onclick="showLast50('${s}')">View last 50</button></td>
-         </tr>`
-      );
+      rows.push(`<tr><td>${s}</td><td class="text-end">${last[s]}</td></tr>`);
     }
     if (rows.length) tbody.innerHTML = rows.join("");
-  } catch (e) {
-    // ignore polling errors
-  }
+  } catch (e) {}
 }
-setInterval(refresh, 2000);
 
-// Modal helpers
-let pretty = true;
-function formatJson(obj) {
+function badge(ok, text) {
+  if (ok === true)  return `<span class="badge bg-success">${text||"✓"}</span>`;
+  if (ok === false) return `<span class="badge bg-danger">${text||"✗"}</span>`;
+  return `<span class="badge bg-secondary">${text||"–"}</span>`;
+}
+function trendBadge(slope) {
+  if (slope === "up") return `<span class="badge bg-success">↑</span>`;
+  if (slope === "down") return `<span class="badge bg-danger">↓</span>`;
+  return `<span class="badge bg-secondary">·</span>`;
+}
+
+function formatDiagRow(sym, d) {
+  const ts = d.ts || "";
+  const price = (d.price ?? "-");
+  const vwap  = (d.vwap ?? "-");
+  const m = d.metrics || {};
+  const f = d.filters || {};
+  const g = d.signals || {};
+  const dec = d.decision || {};
+  const pos = d.position || {};
+
+  const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
+  const filterBadge = filterAll ? badge(true,"OK") : badge(false,"Fail");
+
+  const signalStr = g.long_ok ? "Long" : (g.short_ok ? "Short" : "—");
+  const mom = m.momentum || "–";
+  const absb = (m.absorption===true);
+
+  return `
+    <tr class="diag-row" data-symbol="${sym}" style="cursor:pointer">
+      <td>${sym}</td>
+      <td>${ts}</td>
+      <td class="text-end">${price}</td>
+      <td class="text-end">${vwap}</td>
+      <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
+      <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
+      <td>${trendBadge(m.delta_slope || "flat")}</td>
+      <td>${mom}</td>
+      <td>${absb ? badge(true) : badge(null)}</td>
+      <td>${filterBadge}</td>
+      <td>${signalStr}</td>
+      <td>${dec.action || "HOLD"}</td>
+      <td>${(pos.state || "FLAT")}</td>
+    </tr>`;
+}
+
+async function refreshDiag() {
   try {
-    return pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj);
-  } catch (e) {
-    return String(obj);
-  }
+    const res = await fetch("{{ url_for('strategy_diag_all') }}");
+    const data = await res.json();
+    const tbody = document.querySelector("#diag-table tbody");
+    const syms = Object.keys(data).sort();
+    const rows = [];
+    for (const s of syms) {
+      rows.push(formatDiagRow(s, data[s]));
+    }
+    tbody.innerHTML = rows.join("");
+
+    // attach click -> history
+    for (const tr of tbody.querySelectorAll("tr.diag-row")) {
+      tr.addEventListener("click", async () => {
+        const sym = tr.getAttribute("data-symbol");
+        await showHistory(sym);
+      });
+    }
+  } catch (e) {}
 }
 
-async function showLast50(symbol) {
-  const res = await fetch(`/feed/last50?symbol=${encodeURIComponent(symbol)}`);
-  const data = await res.json();
-  // Prefer displaying the most recent full tick at top
-  const ticks = Array.isArray(data.ticks) ? data.ticks.slice().reverse() : [];
-  const modalTitle = document.getElementById('last50Title');
-  const modalContent = document.getElementById('last50Content');
-  modalTitle.textContent = `Last 50 ticks — ${symbol}`;
-
-  modalContent.textContent = formatJson(ticks);
-
-  // Copy & pretty toggle handlers (bound each time to ensure latest content)
-  const copyBtn = document.getElementById('copyJsonBtn');
-  const toggleBtn = document.getElementById('togglePrettyBtn');
-
-  copyBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(ticks, null, 2));
-      copyBtn.textContent = 'Copied!';
-      setTimeout(() => copyBtn.textContent = 'Copy JSON', 1000);
-    } catch (_) {}
-  };
-  toggleBtn.onclick = () => {
-    pretty = !pretty;
-    modalContent.textContent = formatJson(ticks);
-  };
-
-  const modalEl = document.getElementById('last50Modal');
-  const modal = new bootstrap.Modal(modalEl);
-  modal.show();
+async function showHistory(symbol) {
+  try {
+    const res = await fetch(`{{ url_for('strategy_diag') }}?symbol=${encodeURIComponent(symbol)}&n=20`);
+    const payload = await res.json();
+    document.getElementById("histTitle").textContent = `History • ${payload.symbol}`;
+    const tbody = document.querySelector("#hist-table tbody");
+    const rows = [];
+    for (const d of (payload.items || [])) {
+      const m = d.metrics || {}, f = d.filters || {}, g = d.signals || {}, dec = d.decision || {}, p = d.position || {};
+      const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
+      rows.push(`
+        <tr>
+          <td>${d.ts || ""}</td>
+          <td class="text-end">${d.price ?? "-"}</td>
+          <td class="text-end">${d.vwap ?? "-"}</td>
+          <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
+          <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
+          <td>${(m.delta_slope==="up"?"↑":(m.delta_slope==="down"?"↓":"·"))}</td>
+          <td>${m.momentum || "–"}</td>
+          <td>${m.absorption===true ? "✓" : "·"}</td>
+          <td>${filterAll ? "OK" : "Fail"}</td>
+          <td>${g.long_ok ? "Long" : (g.short_ok ? "Short" : "—")}</td>
+          <td>${dec.action || "HOLD"}</td>
+          <td>${p.state || "FLAT"}</td>
+        </tr>
+      `);
+    }
+    tbody.innerHTML = rows.join("");
+    const modal = new bootstrap.Modal(document.getElementById("histModal"));
+    modal.show();
+  } catch (e) {}
 }
+
+setInterval(refreshPrices, 2000);
+setInterval(refreshDiag, 2000);
+
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

@@ -1,10 +1,10 @@
 # web/app.py
-import os, sys, threading, logging
-from collections import deque, defaultdict
+import os, sys, threading, logging, inspect
+from collections import deque
 from flask import Flask, render_template, redirect, request, url_for, flash, jsonify
-from zoneinfo import ZoneInfo 
+from zoneinfo import ZoneInfo
 
-# ensure project root is on path when running via `python web/app.py` (Flask CLI already sets it)
+# ensure project root is on path when running via `python web/app.py`
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from settings import load_config, TOKENS_PATH
@@ -12,10 +12,9 @@ from core.broker import Broker
 from core.instruments import ensure_cache, build_maps
 from core.stream import Stream, TickBus
 
-# ---- import your strategy here ----
+# ---- strategy imports ----
 from strategies.orderflow_liquidity_trap import OrderFlowLiquidityTrap
 from strategies.oflt_config import CONFIG as OFLT_CONFIG
-
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret")
@@ -29,56 +28,73 @@ _broker = Broker(
     tokens_path=str(TOKENS_PATH),
 )
 
-# ---- runtime / trading toggles (SAFE defaults) ----
-DRY_MODE = True               # set to False to send real CO orders
-EXCHANGE = "NSE"              # CO is supported for NSE EQ; keep to NSE
-STRAT_WINDOW = 5              # last-N ticks for momentum check
-STRAT_SL_PCT = 0.003          # 0.3% SL trigger from entry
-STRAT_QTY = 1                 # default quantity per order
-
-# --- feed globals (kept simple for now) ---
+# --- feed globals ---
 _bus = TickBus()
 _stream = None           # type: Stream | None
 _sym2tok = {}
 _tok2sym = {}
-_last = {}               # symbol -> last_price (for display)
-_last50 = {}             # symbol -> deque of last 50 full ticks (dicts)
+_last = {}               # symbol -> last_price
+_last50 = {}             # symbol -> deque of last 50 ticks
 MAX_TICKS = 50
 _feed_lock = threading.Lock()
 
 # --- strategy wiring ---
-_strategies = []         # list of instantiated strategy objects
+_strategies = []         # list of strategy instances
 
 class StrategyContext:
     """Lightweight dependency bundle passed to strategies."""
-    def __init__(self, broker, tokens_map, dry=True, exchange="NSE"):
+    def __init__(self, broker, tokens_map, dry=True, exchange="NSE", tz=None, report=None):
         self.broker = broker
         self.tokens = tokens_map          # symbol -> instrument_token
         self.dry = dry
         self.exchange = exchange
+        self.tz = tz or ZoneInfo("Asia/Kolkata")
+        # report(symbol:str, diag:dict) -> None
+        self.report = report or (lambda symbol, diag: None)
+
     def log(self, msg: str):
         app.logger.info(msg)
+
+# ---- strategy diagnostics (tiny pipeline) ----
+# Keep a short rolling history per symbol in memory
+STRAT_DIAG = {}  # symbol -> deque(maxlen=50)
+DIAG_LOCK = threading.Lock()
+
+def report_diag(symbol: str, diag: dict):
+    """Called by strategies to report one evaluation snapshot."""
+    try:
+        # ensure minimal fields for safety
+        diag = dict(diag or {})
+        diag.setdefault("symbol", symbol)
+        with DIAG_LOCK:
+            dq = STRAT_DIAG.get(symbol)
+            if dq is None:
+                dq = deque(maxlen=50)
+                STRAT_DIAG[symbol] = dq
+            dq.append(diag)
+    except Exception:
+        app.logger.exception("report_diag failed")
 
 @app.route("/")
 def home():
     access_token = _broker.load_access_token()
     status = "Connected ✅" if access_token else "Not connected"
     feed_running = _stream is not None
-    # symbols shown in table = those we've seen ticks for
     with _feed_lock:
         symbols = sorted(list(_last.keys()))
         last = dict(_last)
-    return render_template("index.html",
-                           connected=bool(access_token),
-                           status=status,
-                           feed_running=feed_running,
-                           symbols=symbols,
-                           last=last)
+    return render_template(
+        "index.html",
+        connected=bool(access_token),
+        status=status,
+        feed_running=feed_running,
+        symbols=symbols,
+        last=last
+    )
 
 @app.route("/connect")
 def connect():
     api_key = _cfg["broker"]["api_key"]
-    # explicit URL, equivalent to _broker.login_url()
     return redirect(f"https://kite.zerodha.com/connect/login?v=3&api_key={api_key}")
 
 @app.route("/redirect")
@@ -96,7 +112,6 @@ def auth_redirect():
 
 @app.route("/disconnect", methods=["POST"])
 def disconnect():
-    # optional helper to clear the token and force a fresh login
     try:
         if os.path.exists(TOKENS_PATH):
             os.remove(TOKENS_PATH)
@@ -118,14 +133,12 @@ def feed_start():
         flash("Please connect Zerodha first.", "warning")
         return redirect(url_for("home"))
 
-    # quick sanity check: verify token works
-    # quick sanity check BEFORE starting feed
+    # quick sanity BEFORE starting feed
     try:
         _broker.profile()
-    except Exception as e:
+    except Exception:
         flash("Please Connect Zerodha on this domain first (token missing/expired).", "warning")
         return redirect(url_for("home"))
-
 
     # build instruments cache & maps
     ensure_cache(_broker.kite)
@@ -133,12 +146,12 @@ def feed_start():
 
     # resolve universe → tokens
     symbols = _cfg["universe"]["symbols"]
-    tokens = [ _sym2tok[s] for s in symbols if s in _sym2tok ]
+    tokens = [_sym2tok[s] for s in symbols if s in _sym2tok]
     if not tokens:
         flash("No tokens to subscribe. Check your universe.symbols.", "danger")
         return redirect(url_for("home"))
 
-    # ---- subscriber: update last price and store last 50 full ticks per symbol
+    # UI sink: update last and last50
     def ui_sink(ticks):
         with _feed_lock:
             for t in ticks:
@@ -152,18 +165,19 @@ def feed_start():
                 if dq is None:
                     dq = deque(maxlen=MAX_TICKS)
                     _last50[sym] = dq
-                dq.append(dict(t))  # append a shallow copy
+                dq.append(dict(t))  # shallow copy
 
     _bus.subscribe(ui_sink)
 
     # ---- build & wire strategies (one per symbol) ----
-   # ---- build & wire strategies (one per symbol) ----
     _strategies = []
     ctx = StrategyContext(
         broker=_broker,
         tokens_map=_sym2tok,
         dry=OFLT_CONFIG["dry_run"],
-        exchange=OFLT_CONFIG["exchange"]
+        exchange=OFLT_CONFIG["exchange"],
+        tz=ZoneInfo("Asia/Kolkata"),
+        report=report_diag,  # <<<<<< diagnostics callback
     )
 
     for sym in symbols:
@@ -181,12 +195,10 @@ def feed_start():
 
         _bus.subscribe(make_handler(strat))
 
-
-    # ---- start stream in background (FULL by default; change to mode="LTP" if needed)
     try:
         _stream = Stream(api_key=_broker.api_key, access_token=token, tokens=tokens, bus=_bus, mode="FULL")
         threading.Thread(target=_stream.start, kwargs={"threaded": True}, daemon=True).start()
-        flash(f"Feed started for {len(tokens)} instruments and {_len_safe(_strategies)} strategies.", "success")
+        flash(f"Feed started for {len(tokens)} instruments and {len(_strategies)} strategies.", "success")
     except Exception as e:
         _stream = None
         app.logger.exception("Failed to start stream")
@@ -225,14 +237,32 @@ def feed_last50():
         ticks = list(_last50.get(symbol, []))
     return {"symbol": symbol, "ticks": ticks}
 
-@app.route("/strategy/reset", methods=["POST"])
-def strategy_reset():
-    """Clear in-memory strategy state (handy during testing)."""
-    global _strategies
-    with _feed_lock:
-        _strategies = []
-    flash("Strategy state cleared. (Re-start the feed to re-instantiate strategies.)", "info")
-    return redirect(url_for("home"))
+# ---- NEW: strategy diagnostics endpoints ----
+@app.route("/strategy/diag_all")
+def strategy_diag_all():
+    """Return latest snapshot per symbol (if any)."""
+    out = {}
+    with DIAG_LOCK:
+        for sym, dq in STRAT_DIAG.items():
+            if dq:
+                out[sym] = dq[-1]
+    return jsonify(out)
+
+@app.route("/strategy/diag")
+def strategy_diag():
+    """Return last N snapshots for a given symbol."""
+    symbol = request.args.get("symbol")
+    n = int(request.args.get("n", 20))
+    if not symbol:
+        return {"error": "symbol query parameter required"}, 400
+    with DIAG_LOCK:
+        items = list(STRAT_DIAG.get(symbol, []))[-n:]
+    return jsonify({"symbol": symbol, "items": items})
+
+# Simple health for cloud readiness checks
+@app.route("/health")
+def health():
+    return {"ok": True}, 200
 
 # --- helpers ---
 def _len_safe(obj):
@@ -242,9 +272,4 @@ def _len_safe(obj):
         return 0
 
 if __name__ == "__main__":
-    # Running via `python web/app.py` is okay; Flask CLI is preferred
     app.run(debug=True, port=5050)
-
-@app.route("/health")
-def health():
-    return {"ok": True}, 200
