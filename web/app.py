@@ -246,3 +246,7 @@ def _len_safe(obj):
 if __name__ == "__main__":
     # Running via `python web/app.py` is okay; Flask CLI is preferred
     app.run(debug=True, port=5050)
+
+@app.route("/health")
+def health():
+    return {"ok": True}, 200
