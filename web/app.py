@@ -118,11 +118,13 @@ def feed_start():
         return redirect(url_for("home"))
 
     # quick sanity check: verify token works
+    # quick sanity check BEFORE starting feed
     try:
         _broker.profile()
     except Exception as e:
-        flash(f"Access token seems invalid/expired. Please reconnect. Detail: {e}", "danger")
+        flash("Please Connect Zerodha on this domain first (token missing/expired).", "warning")
         return redirect(url_for("home"))
+
 
     # build instruments cache & maps
     ensure_cache(_broker.kite)
