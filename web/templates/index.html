@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Algo Bot • Home</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark">
+  <div class="container">
+    <span class="navbar-brand">Zerodha Algo Bot</span>
+  </div>
+</nav>
+
+<div class="container py-4">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-3">
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ 'warning' if cat=='message' else cat }} mb-2">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-body d-flex flex-wrap align-items-center gap-3">
+      <div>Broker status: <strong>{{ status }}</strong></div>
+      <div>Feed:
+        {% if feed_running %}
+          <span class="badge bg-success">Running</span>
+        {% else %}
+          <span class="badge bg-secondary">Stopped</span>
+        {% endif %}
+      </div>
+
+      <div class="ms-auto">
+        {% if not connected %}
+          <a class="btn btn-primary" href="{{ url_for('connect') }}">Connect Zerodha</a>
+        {% else %}
+          {% if not feed_running %}
+            <form class="d-inline" method="post" action="{{ url_for('feed_start') }}">
+              <button class="btn btn-success" type="submit">Start Feed</button>
+            </form>
+          {% else %}
+            <form class="d-inline" method="post" action="{{ url_for('feed_stop') }}">
+              <button class="btn btn-outline-danger" type="submit">Stop Feed</button>
+            </form>
+          {% endif %}
+          <form class="d-inline" method="post" action="{{ url_for('disconnect') }}">
+            <button class="btn btn-outline-secondary" type="submit">Disconnect</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h5 class="card-title">Latest Prices & Full Tick</h5>
+      <table class="table table-sm align-middle" id="ticks-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Last Price</th>
+            <th style="width: 1%;">Details</th>
+          </tr>
+        </thead>
+        <tbody id="ticks-body">
+          {% for s in symbols %}
+            <tr>
+              <td>{{ s }}</td>
+              <td>{{ last.get(s, '-') }}</td>
+              <td>
+                <button class="btn btn-sm btn-outline-secondary" onclick="showLast50('{{ s }}')">
+                  View last 50
+                </button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="text-muted small">Auto-refreshing every 2 seconds.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal to show full tick payloads -->
+<div class="modal fade" id="last50Modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="last50Title">Last 50 ticks</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary" id="copyJsonBtn">Copy JSON</button>
+            <button class="btn btn-sm btn-outline-secondary" id="togglePrettyBtn">Toggle pretty</button>
+          </div>
+        </div>
+        <pre id="last50Content" class="bg-light p-3 border rounded" style="max-height:65vh; overflow:auto;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function refresh() {
+  try {
+    const res = await fetch("{{ url_for('feed_status') }}");
+    const data = await res.json();
+    const tbody = document.querySelector("#ticks-body");
+    const rows = [];
+    const last = data.last || {};
+    const symbols = Object.keys(last).sort();
+    for (const s of symbols) {
+      rows.push(
+        `<tr>
+           <td>${s}</td>
+           <td>${last[s]}</td>
+           <td><button class="btn btn-sm btn-outline-secondary" onclick="showLast50('${s}')">View last 50</button></td>
+         </tr>`
+      );
+    }
+    if (rows.length) tbody.innerHTML = rows.join("");
+  } catch (e) {
+    // ignore polling errors
+  }
+}
+setInterval(refresh, 2000);
+
+// Modal helpers
+let pretty = true;
+function formatJson(obj) {
+  try {
+    return pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj);
+  } catch (e) {
+    return String(obj);
+  }
+}
+
+async function showLast50(symbol) {
+  const res = await fetch(`/feed/last50?symbol=${encodeURIComponent(symbol)}`);
+  const data = await res.json();
+  // Prefer displaying the most recent full tick at top
+  const ticks = Array.isArray(data.ticks) ? data.ticks.slice().reverse() : [];
+  const modalTitle = document.getElementById('last50Title');
+  const modalContent = document.getElementById('last50Content');
+  modalTitle.textContent = `Last 50 ticks — ${symbol}`;
+
+  modalContent.textContent = formatJson(ticks);
+
+  // Copy & pretty toggle handlers (bound each time to ensure latest content)
+  const copyBtn = document.getElementById('copyJsonBtn');
+  const toggleBtn = document.getElementById('togglePrettyBtn');
+
+  copyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(ticks, null, 2));
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => copyBtn.textContent = 'Copy JSON', 1000);
+    } catch (_) {}
+  };
+  toggleBtn.onclick = () => {
+    pretty = !pretty;
+    modalContent.textContent = formatJson(ticks);
+  };
+
+  const modalEl = document.getElementById('last50Modal');
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
