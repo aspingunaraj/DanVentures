@@ -56,7 +56,6 @@ class StrategyContext:
         self.tokens = tokens_map          # symbol -> instrument_token
         self.dry = dry
         self.exchange = exchange
-        self.tz = tz or ZoneInfo("Asia/Kolkata") 
     def log(self, msg: str):
         app.logger.info(msg)
 
