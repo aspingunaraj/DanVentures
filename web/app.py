@@ -163,8 +163,7 @@ def feed_start():
         broker=_broker,
         tokens_map=_sym2tok,
         dry=OFLT_CONFIG["dry_run"],
-        exchange=OFLT_CONFIG["exchange"],
-        tz=ZoneInfo("Asia/Kolkata"),
+        exchange=OFLT_CONFIG["exchange"]
     )
 
     for sym in symbols:
