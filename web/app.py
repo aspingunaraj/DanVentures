@@ -2,6 +2,7 @@
 import os, sys, threading, logging
 from collections import deque, defaultdict
 from flask import Flask, render_template, redirect, request, url_for, flash, jsonify
+from zoneinfo import ZoneInfo 
 
 # ensure project root is on path when running via `python web/app.py` (Flask CLI already sets it)
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -55,6 +56,7 @@ class StrategyContext:
         self.tokens = tokens_map          # symbol -> instrument_token
         self.dry = dry
         self.exchange = exchange
+        self.tz = tz or ZoneInfo("Asia/Kolkata") 
     def log(self, msg: str):
         app.logger.info(msg)
 
@@ -156,22 +158,31 @@ def feed_start():
     _bus.subscribe(ui_sink)
 
     # ---- build & wire strategies (one per symbol) ----
+   # ---- build & wire strategies (one per symbol) ----
     _strategies = []
-    ctx = StrategyContext(broker=_broker, tokens_map=_sym2tok, dry=OFLT_CONFIG["dry_run"], exchange=OFLT_CONFIG["exchange"])
-    for sym in symbols:
-     if sym not in _sym2tok:
-        continue
-        strat = OrderFlowLiquidityTrap(symbol=sym, context=ctx, overrides=None)  # or pass overrides={}
-        _strategies.append(strat)
-        _bus.subscribe((lambda s: (lambda ticks: [s.on_tick(t) for t in ticks]))(strat))
+    ctx = StrategyContext(
+        broker=_broker,
+        tokens_map=_sym2tok,
+        dry=OFLT_CONFIG["dry_run"],
+        exchange=OFLT_CONFIG["exchange"],
+        tz=ZoneInfo("Asia/Kolkata"),
+    )
 
-        # Each strategy gets its own subscriber that forwards ticks
+    for sym in symbols:
+        if sym not in _sym2tok:
+            continue
+        strat = OrderFlowLiquidityTrap(symbol=sym, context=ctx, overrides=None)
+        _strategies.append(strat)
+
+        # One subscription per strategy
         def make_handler(s):
             def handler(ticks):
                 for t in ticks:
                     s.on_tick(t)
             return handler
+
         _bus.subscribe(make_handler(strat))
+
 
     # ---- start stream in background (FULL by default; change to mode="LTP" if needed)
     try:
