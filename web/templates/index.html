@@ -76,6 +76,8 @@
     </div>
   </div>
 
+  
+
   <!-- Strategy Telemetry -->
   <div class="card shadow-sm">
     <div class="card-body">
@@ -141,6 +143,141 @@
     </div>
   </div>
 </div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center mb-2">
+      <h5 class="card-title mb-0">Strategy Config</h5>
+      <span id="cfg-note" class="ms-2 small text-muted"></span>
+    </div>
+
+    <form id="cfg-form" class="row g-3">
+      <!-- Core windows -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Momentum window</label>
+        <input type="number" class="form-control" name="momentum_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Delta window</label>
+        <input type="number" class="form-control" name="delta_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance window</label>
+        <input type="number" class="form-control" name="imbalance_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth levels</label>
+        <input type="number" class="form-control" name="depth_levels" min="1" max="5" step="1">
+      </div>
+
+      <!-- Thresholds -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance long ≥</label>
+        <input type="number" class="form-control" name="imbalance_threshold_long" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance short ≤</label>
+        <input type="number" class="form-control" name="imbalance_threshold_short" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth ratio min (long)</label>
+        <input type="number" class="form-control" name="depth_ratio_min_long" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth ratio max (short)</label>
+        <input type="number" class="form-control" name="depth_ratio_max_short" step="0.01">
+      </div>
+
+      <div class="col-6 col-md-3">
+        <label class="form-label">Delta trend ticks</label>
+        <input type="number" class="form-control" name="delta_trend_ticks" min="2" step="1">
+      </div>
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="require_hh_hl_for_long" id="hhhl">
+        <label class="form-check-label" for="hhhl">Require HHHL (long)</label>
+      </div>
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="require_ll_lh_for_short" id="lllh">
+        <label class="form-check-label" for="lllh">Require LLLH (short)</label>
+      </div>
+
+      <!-- VWAP / Trend -->
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="use_vwap_filter" id="vwapf">
+        <label class="form-check-label" for="vwapf">Use VWAP filter</label>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">VWAP slope window</label>
+        <input type="number" class="form-control" name="vwap_slope_window" min="2" step="1">
+      </div>
+
+      <!-- Absorption -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption window</label>
+        <input type="number" class="form-control" name="absorption_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption min qty</label>
+        <input type="number" class="form-control" name="absorption_min_traded_qty" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption max range (bps)</label>
+        <input type="number" class="form-control" name="absorption_max_price_range_bps" min="1" step="1">
+      </div>
+
+      <!-- Filters / market quality -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Skip first minutes</label>
+        <input type="number" class="form-control" name="skip_first_minutes" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max spread % (e.g., 0.0005)</label>
+        <input type="number" class="form-control" name="max_spread_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max tick jump (bps)</label>
+        <input type="number" class="form-control" name="max_tick_jump_bps" min="1" step="1">
+      </div>
+
+      <!-- Risk / execution -->
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="dry_run" id="dryrun">
+        <label class="form-check-label" for="dryrun">Dry run (no live orders)</label>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Qty</label>
+        <input type="number" class="form-control" name="qty" min="1" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Stoploss % (e.g., 0.001)</label>
+        <input type="number" class="form-control" name="stoploss_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Cooldown seconds</label>
+        <input type="number" class="form-control" name="cooldown_seconds" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max trades per session</label>
+        <input type="number" class="form-control" name="max_trades_per_session" min="1" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Target % (e.g., 0.001)</label>
+        <input type="number" class="form-control" name="target_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Time stop (sec)</label>
+        <input type="number" class="form-control" name="time_stop_seconds" min="0" step="1">
+      </div>
+
+      <div class="col-12">
+        <button type="button" class="btn btn-primary" id="cfg-save">Save</button>
+        <button type="button" class="btn btn-outline-secondary" id="cfg-reset">Reset to base</button>
+        <span id="cfg-status" class="ms-2 small"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
 
 <script>
 async function refreshPrices() {
@@ -271,6 +408,57 @@ setInterval(refreshPrices, 2000);
 setInterval(refreshDiag, 2000);
 
 </script>
+<script>
+async function loadConfigForm() {
+  const r = await fetch("{{ url_for('strategy_config_get') }}");
+  const data = await r.json();
+  const eff = data.effective || {};
+  const form = document.getElementById("cfg-form");
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    const val = eff[el.name];
+    if (typeof val === "boolean") el.checked = !!val;
+    else if (val !== undefined) el.value = val;
+  }
+}
+
+async function saveConfigForm() {
+  const form = document.getElementById("cfg-form");
+  const payload = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") payload[el.name] = el.checked;
+    else if (el.type === "number") payload[el.name] = el.value === "" ? null : Number(el.value);
+    else payload[el.name] = el.value;
+  }
+  const r = await fetch("{{ url_for('strategy_config_post') }}", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  const out = await r.json();
+  const note = document.getElementById("cfg-status");
+  note.textContent = out.note || (out.ok ? "Saved." : "Failed.");
+  if (out.rebuild_required) {
+    note.textContent += " → Please Stop Feed and Start Feed to apply window changes.";
+  }
+}
+
+async function resetConfig() {
+  const r = await fetch("{{ url_for('strategy_config_reset') }}", { method: "POST" });
+  const out = await r.json();
+  document.getElementById("cfg-status").textContent = out.message || "Reset.";
+  await loadConfigForm();
+}
+
+document.getElementById("cfg-save").addEventListener("click", saveConfigForm);
+document.getElementById("cfg-reset").addEventListener("click", resetConfig);
+
+loadConfigForm();
+</script>
+
+
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

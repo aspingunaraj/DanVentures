@@ -1,8 +1,11 @@
 # web/app.py
-import os, sys, threading, logging, inspect
+import os, sys, threading, logging
+import json
 from collections import deque
 from flask import Flask, render_template, redirect, request, url_for, flash, jsonify
 from zoneinfo import ZoneInfo
+from pathlib import Path
+from copy import deepcopy
 
 # ensure project root is on path when running via `python web/app.py`
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -14,7 +17,7 @@ from core.stream import Stream, TickBus
 
 # ---- strategy imports ----
 from strategies.orderflow_liquidity_trap import OrderFlowLiquidityTrap
-from strategies.oflt_config import CONFIG as OFLT_CONFIG
+from strategies.oflt_config import CONFIG as BASE_OFLT_CONFIG
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret")
@@ -33,9 +36,9 @@ _bus = TickBus()
 _stream = None           # type: Stream | None
 _sym2tok = {}
 _tok2sym = {}
-_last = {}        
-_last_ts = {}           # symbol -> last_price
-_last50 = {}             # symbol -> deque of last 50 ticks
+_last = {}              # symbol -> last_price
+_last_ts = {}           # symbol -> last tick timestamp (string)
+_last50 = {}            # symbol -> deque of last 50 ticks
 MAX_TICKS = 50
 _feed_lock = threading.Lock()
 
@@ -57,14 +60,12 @@ class StrategyContext:
         app.logger.info(msg)
 
 # ---- strategy diagnostics (tiny pipeline) ----
-# Keep a short rolling history per symbol in memory
 STRAT_DIAG = {}  # symbol -> deque(maxlen=50)
 DIAG_LOCK = threading.Lock()
 
 def report_diag(symbol: str, diag: dict):
     """Called by strategies to report one evaluation snapshot."""
     try:
-        # ensure minimal fields for safety
         diag = dict(diag or {})
         diag.setdefault("symbol", symbol)
         with DIAG_LOCK:
@@ -75,6 +76,79 @@ def report_diag(symbol: str, diag: dict):
             dq.append(diag)
     except Exception:
         app.logger.exception("report_diag failed")
+
+# ---- config overrides (persisted) ----
+_OVERRIDES_PATH = Path(os.path.dirname(os.path.dirname(__file__))) / "oflt_overrides.json"
+_config_overrides = {}
+
+# Changes to these keys require strategy rebuild (Stop Feed → Start Feed)
+_STRUCTURAL_KEYS = {
+    "momentum_window",
+    "delta_window",
+    "imbalance_window",
+    "depth_levels",
+    "vwap_slope_window",
+    "absorption_window",
+}
+
+def _load_overrides():
+    """Load persisted overrides into memory."""
+    global _config_overrides
+    if _OVERRIDES_PATH.exists():
+        try:
+            _config_overrides = json.loads(_OVERRIDES_PATH.read_text())
+        except Exception:
+            app.logger.exception("Failed reading overrides file; starting with empty overrides.")
+            _config_overrides = {}
+    else:
+        _config_overrides = {}
+
+def _save_overrides():
+    """Persist current overrides to disk."""
+    try:
+        _OVERRIDES_PATH.write_text(json.dumps(_config_overrides, indent=2, sort_keys=True))
+    except Exception:
+        app.logger.exception("Failed writing overrides file.")
+
+def _effective_config():
+    """Base CONFIG + overrides."""
+    eff = deepcopy(BASE_OFLT_CONFIG)
+    eff.update(_config_overrides or {})
+    return eff
+
+def _coerce_types(base_cfg: dict, raw: dict) -> dict:
+    """
+    Convert incoming JSON/form strings to correct types using the base config as a guide.
+    Only known keys are returned.
+    """
+    out = {}
+    for k, v in (raw or {}).items():
+        if k not in base_cfg:
+            continue
+        base_val = base_cfg[k]
+        t = type(base_val)
+        try:
+            if t is bool:
+                if isinstance(v, bool):
+                    out[k] = v
+                else:
+                    out[k] = str(v).lower() in ("1", "true", "yes", "on")
+            elif t is int:
+                out[k] = int(v)
+            elif t is float:
+                out[k] = float(v)
+            elif isinstance(base_val, (list, tuple)):
+                # expect array in JSON; for form posts it's trickier; keep as-is
+                out[k] = v
+            else:
+                out[k] = v
+        except Exception:
+            # ignore bad casts; skip key
+            pass
+    return out
+
+# Load overrides now
+_load_overrides()
 
 @app.route("/")
 def home():
@@ -152,7 +226,7 @@ def feed_start():
         flash("No tokens to subscribe. Check your universe.symbols.", "danger")
         return redirect(url_for("home"))
 
-    # UI sink: update last and last50
+    # UI sink: update last & timestamp & last50
     def ui_sink(ticks):
         with _feed_lock:
             for t in ticks:
@@ -169,7 +243,6 @@ def feed_start():
                     except Exception:
                         s = str(ts)
                     _last_ts[sym] = s
-
                 dq = _last50.get(sym)
                 if dq is None:
                     dq = deque(maxlen=MAX_TICKS)
@@ -180,19 +253,21 @@ def feed_start():
 
     # ---- build & wire strategies (one per symbol) ----
     _strategies = []
+    eff_cfg = _effective_config()
     ctx = StrategyContext(
         broker=_broker,
         tokens_map=_sym2tok,
-        dry=OFLT_CONFIG["dry_run"],
-        exchange=OFLT_CONFIG["exchange"],
+        dry=eff_cfg.get("dry_run", True),
+        exchange=eff_cfg.get("exchange", "NSE"),
         tz=ZoneInfo("Asia/Kolkata"),
-        report=report_diag,  # <<<<<< diagnostics callback
+        report=report_diag,  # diagnostics callback
     )
 
     for sym in symbols:
         if sym not in _sym2tok:
             continue
-        strat = OrderFlowLiquidityTrap(symbol=sym, context=ctx, overrides=None)
+        # Pass ONLY overrides to allow strategy to merge with its base CONFIG
+        strat = OrderFlowLiquidityTrap(symbol=sym, context=ctx, overrides=deepcopy(_config_overrides))
         _strategies.append(strat)
 
         # One subscription per strategy
@@ -234,7 +309,11 @@ def feed_stop():
 def feed_status():
     running = _stream is not None
     with _feed_lock:
-        payload = {"running": running, "last": dict(_last), "last_ts": dict(_last_ts)}
+        payload = {
+            "running": running,
+            "last": dict(_last),
+            "last_ts": dict(_last_ts)
+        }
     return jsonify(payload)
 
 @app.route("/feed/last50")
@@ -246,7 +325,7 @@ def feed_last50():
         ticks = list(_last50.get(symbol, []))
     return {"symbol": symbol, "ticks": ticks}
 
-# ---- NEW: strategy diagnostics endpoints ----
+# ---- strategy diagnostics endpoints ----
 @app.route("/strategy/diag_all")
 def strategy_diag_all():
     """Return latest snapshot per symbol (if any)."""
@@ -267,6 +346,68 @@ def strategy_diag():
     with DIAG_LOCK:
         items = list(STRAT_DIAG.get(symbol, []))[-n:]
     return jsonify({"symbol": symbol, "items": items})
+
+# ---- Strategy Config (GET current, POST save overrides, RESET) ----
+@app.route("/strategy/config", methods=["GET"])
+def strategy_config_get():
+    base = deepcopy(BASE_OFLT_CONFIG)
+    eff = _effective_config()
+    return jsonify({
+        "base": base,
+        "overrides": deepcopy(_config_overrides),
+        "effective": eff,
+    })
+
+@app.route("/strategy/config", methods=["POST"])
+def strategy_config_post():
+    # Accept JSON body or form-encoded
+    incoming = request.get_json(silent=True) or dict(request.form)
+    base = deepcopy(BASE_OFLT_CONFIG)
+    old_eff = _effective_config()
+
+    # Coerce to proper types guided by base
+    new_overrides = _coerce_types(base, incoming)
+
+    # Predict if structural change occurs
+    future_overrides = deepcopy(_config_overrides)
+    future_overrides.update(new_overrides)
+    new_eff = deepcopy(base); new_eff.update(future_overrides)
+
+    rebuild_required = any(
+        (str(old_eff.get(k)) != str(new_eff.get(k)))
+        for k in _STRUCTURAL_KEYS
+    )
+
+    # Persist overrides
+    _config_overrides.update(new_overrides)
+    _save_overrides()
+
+    # Live-apply non-structural changes to running strategies
+    applied_live = False
+    if _strategies and not rebuild_required:
+        for s in _strategies:
+            try:
+                s.cfg.update(new_overrides)
+                applied_live = True
+            except Exception:
+                app.logger.exception("Failed applying overrides to a live strategy")
+
+    return jsonify({
+        "ok": True,
+        "rebuild_required": rebuild_required,
+        "applied_live": applied_live,
+        "effective": new_eff,
+        "note": ("Window-size changes require Stop Feed → Start Feed to take effect."
+                 if rebuild_required else
+                 "Non-structural fields applied to running strategies."),
+    })
+
+@app.route("/strategy/config/reset", methods=["POST"])
+def strategy_config_reset():
+    global _config_overrides
+    _config_overrides = {}
+    _save_overrides()
+    return jsonify({"ok": True, "message": "Overrides cleared. Using base config now."})
 
 # Simple health for cloud readiness checks
 @app.route("/health")
