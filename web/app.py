@@ -33,7 +33,8 @@ _bus = TickBus()
 _stream = None           # type: Stream | None
 _sym2tok = {}
 _tok2sym = {}
-_last = {}               # symbol -> last_price
+_last = {}        
+_last_ts = {}           # symbol -> last_price
 _last50 = {}             # symbol -> deque of last 50 ticks
 MAX_TICKS = 50
 _feed_lock = threading.Lock()
@@ -161,6 +162,14 @@ def feed_start():
                 lp = t.get("last_price")
                 if lp is not None:
                     _last[sym] = lp
+                ts = t.get("exchange_timestamp") or t.get("timestamp") or t.get("last_trade_time")
+                if ts is not None:
+                    try:
+                        s = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                    except Exception:
+                        s = str(ts)
+                    _last_ts[sym] = s
+
                 dq = _last50.get(sym)
                 if dq is None:
                     dq = deque(maxlen=MAX_TICKS)
@@ -225,7 +234,7 @@ def feed_stop():
 def feed_status():
     running = _stream is not None
     with _feed_lock:
-        payload = {"running": running, "last": dict(_last)}
+        payload = {"running": running, "last": dict(_last), "last_ts": dict(_last_ts)}
     return jsonify(payload)
 
 @app.route("/feed/last50")

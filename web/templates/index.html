@@ -61,12 +61,16 @@
     <div class="card-body">
       <h5 class="card-title">Latest Prices</h5>
       <table class="table table-sm align-middle" id="ticks-table">
-        <thead><tr><th>Symbol</th><th>Last Price</th></tr></thead>
-        <tbody>
-          {% for s in symbols %}
-            <tr><td>{{ s }}</td><td>{{ last.get(s, '-') }}</td></tr>
-          {% endfor %}
-        </tbody>
+        <thead><tr><th>Symbol</th><th class="text-end">Last Price</th><th>Time</th></tr></thead>
+          <tbody>
+            {% for s in symbols %}
+              <tr>
+                <td>{{ s }}</td>
+                <td class="text-end">{{ last.get(s, '-') }}</td>
+                <td>—</td>
+              </tr>
+            {% endfor %}
+          </tbody>
       </table>
       <div class="text-muted small">Auto-refreshing every 2 seconds.</div>
     </div>
@@ -146,9 +150,17 @@ async function refreshPrices() {
     const tbody = document.querySelector("#ticks-table tbody");
     const rows = [];
     const last = data.last || {};
+    const lastTs = data.last_ts || {};       // NEW
     const symbols = Object.keys(last).sort();
     for (const s of symbols) {
-      rows.push(`<tr><td>${s}</td><td class="text-end">${last[s]}</td></tr>`);
+      const ts = lastTs[s] || "—";
+      rows.push(`
+        <tr>
+          <td>${s}</td>
+          <td class="text-end">${last[s]}</td>
+          <td>${ts}</td>
+        </tr>
+      `);
     }
     if (rows.length) tbody.innerHTML = rows.join("");
   } catch (e) {}
