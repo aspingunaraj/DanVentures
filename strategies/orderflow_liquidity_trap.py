@@ -50,8 +50,20 @@ class OrderFlowLiquidityTrap(StrategyBase):
         self.trades_taken: int = 0
 
     # ------------------- Tick processing -------------------
-    def round_to_tick(value: float, tick: float=0.10) -> float:
-        return float(f"{round(value / tick) * tick:.2f}")
+    def round_to_tick(self, value, tick=0.10, direction=None):
+  
+        if tick <= 0:
+            return value
+
+        import math
+
+        if direction == "up":
+            return math.ceil(value / tick) * tick
+        elif direction == "down":
+            return math.floor(value / tick) * tick
+        else:
+            return round(value / tick) * tick
+
 
 
     def on_tick(self, tick: Dict[str, Any]):
