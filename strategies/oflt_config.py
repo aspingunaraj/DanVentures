@@ -66,7 +66,7 @@ CONFIG = {
     "max_tick_jump_bps": 10,            # 0.10%
 
     # ---------- RISK / EXECUTION ----------
-    "dry_run": True,                    # keep True until you are confident
+    "dry_run": False,                    # keep True until you are confident
     "qty": 1,                           # per order
     "exchange": "NSE",                  # CO is supported for NSE EQ
     "stoploss_pct": 0.001,              # 0.10% SL trigger for the CO leg
