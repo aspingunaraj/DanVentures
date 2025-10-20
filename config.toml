@@ -3,4 +3,5 @@ api_key = "9a4fnxekfbrw0k6d"
 api_secret = "d4avfhwjneq1kkxqhfj06rfcyhgykng4"
 redirect_uri = "http://127.0.0.1:5000/redirect"   # <- match the Flask route
 [universe]
-symbols = ["RELIANCE","TCS","HDFCBANK","INFY","BHARTIARTL"]
+symbols = ["RELIANCE","TCS","HDFCBANK","INFY","BHARTIARTL","ICICIBANK","SBIN","BAJFINANCE","INFY",
+"ITC","HCLTECH","AXISBANK","ETERNAL","NTPC","ADANIPORTS","ONGC","BEL","JSWSTEEL"]
