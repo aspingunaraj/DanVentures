@@ -53,6 +53,11 @@
           </form>
         {% endif %}
       </div>
+      <form class="d-inline" method="post" action="{{ url_for('square_off_all') }}"
+      onsubmit="return confirm('Square off ALL open positions?');">
+  <button class="btn btn-warning" type="submit">Square Off All</button>
+</form>
+
     </div>
   </div>
 

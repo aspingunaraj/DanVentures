@@ -409,6 +409,100 @@ def strategy_config_reset():
     _save_overrides()
     return jsonify({"ok": True, "message": "Overrides cleared. Using base config now."})
 
+# --- Square off ALL active strategy positions ---
+@app.route("/squareoff", methods=["POST"])
+def square_off_all():
+    global _strategies
+    if not _strategies:
+        flash("No strategies are active.", "warning")
+        return redirect(url_for("home"))
+
+    exited, skipped, errors = [], [], []
+    for s in _strategies:
+        sym = getattr(s, "symbol", "?")
+        pos = getattr(s, "position", None)
+        if not pos:
+            skipped.append(sym)
+            continue
+
+        dry = bool(getattr(s, "cfg", {}).get("dry_run", True))
+        parent_id = getattr(s, "parent_order_id", None)
+
+        try:
+            if dry:
+                # simulate exit
+                s.position = None
+                s.entry_price = None
+                s.parent_order_id = None
+                exited.append(f"{sym} (dry)")
+            else:
+                if not parent_id:
+                    errors.append(f"{sym}: no parent_order_id (cannot exit CO)")
+                else:
+                    _broker.exit_cover_order(parent_order_id=str(parent_id))
+                    exited.append(sym)
+                # clear local state regardless
+                s.position = None
+                s.entry_price = None
+                s.parent_order_id = None
+        except Exception as e:
+            errors.append(f"{sym}: {e}")
+
+    if exited:
+        flash(f"Square off sent for: {', '.join(exited)}", "success")
+    if skipped:
+        flash(f"No open position for: {', '.join(skipped)}", "info")
+    if errors:
+        flash(f"Errors: {', '.join(errors)}", "danger")
+
+    return redirect(url_for("home"))
+
+
+# --- OPTIONAL: Square off ONE symbol ---
+@app.route("/squareoff/<symbol>", methods=["POST"])
+def square_off_symbol(symbol):
+    global _strategies
+    target = None
+    for s in _strategies:
+        if getattr(s, "symbol", "").upper() == symbol.upper():
+            target = s
+            break
+    if not target:
+        flash(f"No strategy found for {symbol}.", "warning")
+        return redirect(url_for("home"))
+
+    if not getattr(target, "position", None):
+        flash(f"{symbol} is already flat.", "info")
+        return redirect(url_for("home"))
+
+    dry = bool(getattr(target, "cfg", {}).get("dry_run", True))
+    pid = getattr(target, "parent_order_id", None)
+
+    try:
+        if dry:
+            target.position = None
+            target.entry_price = None
+            target.parent_order_id = None
+            flash(f"{symbol}: (dry) squared off.", "success")
+        else:
+            if not pid:
+                flash(f"{symbol}: no parent_order_id to exit CO.", "danger")
+            else:
+                _broker.exit_cover_order(parent_order_id=str(pid))
+                flash(f"{symbol}: square off sent.", "success")
+            # clear local
+            target.position = None
+            target.entry_price = None
+            target.parent_order_id = None
+    except Exception as e:
+        flash(f"{symbol}: square off failed: {e}", "danger")
+
+    return redirect(url_for("home"))
+
+
+
+
+
 # Simple health for cloud readiness checks
 @app.route("/health")
 def health():
