@@ -647,6 +647,26 @@ document.querySelectorAll('[data-preset]').forEach(btn => {
 });
 </script>
 
+<script>
+function toIST(ts) {
+  if (!ts) return "-";
+
+  // If it’s already a simple clock string (no date), show as-is
+  if (!ts.includes("T")) return ts;
+
+  // Let the browser parse ISO and render explicitly in Asia/Kolkata
+  const d = new Date(ts);              // works with “…Z” or “…+05:30” too
+  if (isNaN(d)) return ts;
+
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Asia/Kolkata"
+  }).format(d);
+}
+</script>
+
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>

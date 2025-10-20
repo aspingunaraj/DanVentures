@@ -50,8 +50,8 @@ class OrderFlowLiquidityTrap(StrategyBase):
         self.trades_taken: int = 0
 
     # ------------------- Tick processing -------------------
-    def round_to_tick(value, tick=0.10):
-        return round(round(value / tick) * tick, 2)
+    def round_to_tick(value: float, tick: float=0.10) -> float:
+        return float(f"{round(value / tick) * tick:.2f}")
 
 
     def on_tick(self, tick: Dict[str, Any]):
@@ -274,8 +274,9 @@ class OrderFlowLiquidityTrap(StrategyBase):
     # ------------------- Entry / Exit -------------------
     def _enter(self, side: str, price: float):
         sl_pct = float(self.cfg["stoploss_pct"])
-        sl_trig = round(price * (1.0 - sl_pct), 2) if side == "BUY" else round(price * (1.0 + sl_pct), 2)
-        sl_trig = self.round_to_tick(sl_trig, tick=0.10)
+        raw_trig = round(price * (1.0 - sl_pct), 2) if side == "BUY" else round(price * (1.0 + sl_pct), 2)
+        tick_size = float(self.cfg.get("tick_size", 0.10))
+        sl_trig = self.round_to_tick(raw_trig, tick_size)
         qty = int(self.cfg["qty"])
         dry = bool(self.cfg["dry_run"])
 
