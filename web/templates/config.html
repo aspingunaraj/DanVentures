@@ -1,0 +1,283 @@
+<!-- templates/config.html -->
+{% extends "base.html" %}
+{% block title %}Config • Algo Bot{% endblock %}
+
+{% block content %}
+<div class="page-header mb-3">
+  <h4 class="mb-0">Strategy Config</h4>
+  <span id="cfg-note" class="ms-2 small text-muted">Edit thresholds & windows. Some window changes require restarting the feed.</span>
+
+  <!-- Preset buttons -->
+  <div class="ms-auto btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-preset="defensive">Defensive</button>
+    <button type="button" class="btn btn-outline-secondary" data-preset="balanced">Balanced</button>
+    <button type="button" class="btn btn-outline-secondary" data-preset="aggressive">Aggressive</button>
+    <button type="button" class="btn btn-outline-secondary" data-preset="very_aggressive">Very Aggressive</button>
+  </div>
+</div>
+
+<div class="card shadow-soft">
+  <div class="card-body">
+    <form id="cfg-form" class="row g-3">
+      <!-- Core windows -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Momentum window</label>
+        <input type="number" class="form-control" name="momentum_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Delta window</label>
+        <input type="number" class="form-control" name="delta_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance window</label>
+        <input type="number" class="form-control" name="imbalance_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth levels</label>
+        <input type="number" class="form-control" name="depth_levels" min="1" max="5" step="1">
+      </div>
+
+      <!-- Thresholds -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance long ≥</label>
+        <input type="number" class="form-control" name="imbalance_threshold_long" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Imbalance short ≤</label>
+        <input type="number" class="form-control" name="imbalance_threshold_short" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth ratio min (long)</label>
+        <input type="number" class="form-control" name="depth_ratio_min_long" step="0.01">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Depth ratio max (short)</label>
+        <input type="number" class="form-control" name="depth_ratio_max_short" step="0.01">
+      </div>
+
+      <div class="col-6 col-md-3">
+        <label class="form-label">Delta trend ticks</label>
+        <input type="number" class="form-control" name="delta_trend_ticks" min="2" step="1">
+      </div>
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="require_hh_hl_for_long" id="hhhl">
+        <label class="form-check-label" for="hhhl">Require HHHL (long)</label>
+      </div>
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="require_ll_lh_for_short" id="lllh">
+        <label class="form-check-label" for="lllh">Require LLLH (short)</label>
+      </div>
+
+      <!-- VWAP / Trend -->
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="use_vwap_filter" id="vwapf">
+        <label class="form-check-label" for="vwapf">Use VWAP filter</label>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">VWAP slope window</label>
+        <input type="number" class="form-control" name="vwap_slope_window" min="2" step="1">
+      </div>
+
+      <!-- Absorption -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption window</label>
+        <input type="number" class="form-control" name="absorption_window" min="3" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption min qty</label>
+        <input type="number" class="form-control" name="absorption_min_traded_qty" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Absorption max range (bps)</label>
+        <input type="number" class="form-control" name="absorption_max_price_range_bps" min="1" step="1">
+      </div>
+
+      <!-- Filters / market quality -->
+      <div class="col-6 col-md-3">
+        <label class="form-label">Skip first minutes</label>
+        <input type="number" class="form-control" name="skip_first_minutes" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max spread % (e.g., 0.0005)</label>
+        <input type="number" class="form-control" name="max_spread_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max tick jump (bps)</label>
+        <input type="number" class="form-control" name="max_tick_jump_bps" min="1" step="1">
+      </div>
+
+      <!-- Risk / execution -->
+      <div class="col-6 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="dry_run" id="dryrun">
+        <label class="form-check-label" for="dryrun">Dry run (no live orders)</label>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Qty</label>
+        <input type="number" class="form-control" name="qty" min="1" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Stoploss % (e.g., 0.001)</label>
+        <input type="number" class="form-control" name="stoploss_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Cooldown seconds</label>
+        <input type="number" class="form-control" name="cooldown_seconds" min="0" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Max trades per session</label>
+        <input type="number" class="form-control" name="max_trades_per_session" min="1" step="1">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Target % (e.g., 0.001)</label>
+        <input type="number" class="form-control" name="target_pct" min="0" step="0.0001">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label">Time stop (sec)</label>
+        <input type="number" class="form-control" name="time_stop_seconds" min="0" step="1">
+      </div>
+
+      <div class="col-12">
+        <button type="button" class="btn btn-primary" id="cfg-save">Save</button>
+        <button type="button" class="btn btn-outline-secondary" id="cfg-reset">Reset to base</button>
+        <span id="cfg-status" class="ms-2 small"></span>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/** Populate form inputs from a config object */
+function populateForm(cfg) {
+  const form = document.getElementById("cfg-form");
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    const val = cfg[el.name];
+    if (typeof val === "boolean") el.checked = !!val;
+    else if (val !== undefined && val !== null) el.value = val;
+  }
+}
+
+/** Load effective config into the form */
+async function loadConfigForm() {
+  const r = await fetch("{{ url_for('strategy_config_get') }}");
+  const data = await r.json();
+  const eff = data.effective || {};
+  populateForm(eff);
+}
+
+/** Collect form → JSON */
+function collectConfigForm() {
+  const form = document.getElementById("cfg-form");
+  const payload = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") payload[el.name] = el.checked;
+    else if (el.type === "number") payload[el.name] = el.value === "" ? null : Number(el.value);
+    else payload[el.name] = el.value;
+  }
+  return payload;
+}
+
+/** Save config to backend */
+async function saveConfigForm() {
+  const payload = collectConfigForm();
+  const r = await fetch("{{ url_for('strategy_config_post') }}", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  const out = await r.json();
+  const note = document.getElementById("cfg-status");
+  note.textContent = out.note || (out.ok ? "Saved." : "Failed.");
+  if (out.rebuild_required) {
+    note.textContent += " → Please Stop Feed and Start Feed to apply window changes.";
+  }
+  // reflect what backend says is effective
+  if (out.effective) populateForm(out.effective);
+}
+
+/** Reset overrides to base (server) */
+async function resetConfig() {
+  const r = await fetch("{{ url_for('strategy_config_reset') }}", { method: "POST" });
+  const out = await r.json();
+  document.getElementById("cfg-status").textContent = out.message || "Reset.";
+  await loadConfigForm();
+}
+
+/** Presets. Structural keys (windows) require feed restart to take effect. */
+const PRESETS = {
+  defensive: {
+    momentum_window: 24, delta_window: 14, imbalance_window: 10, depth_levels: 4, vwap_slope_window: 30,
+    imbalance_threshold_long: 0.65, imbalance_threshold_short: -0.65,
+    depth_ratio_min_long: 1.60, depth_ratio_max_short: 0.62,
+    delta_trend_ticks: 7,
+    require_hh_hl_for_long: true, require_ll_lh_for_short: true,
+    use_vwap_filter: true,
+    // absorption (leave base values unless tuning)
+    skip_first_minutes: 7, max_spread_pct: 0.0004, max_tick_jump_bps: 8,
+    cooldown_seconds: 90, max_trades_per_session: 2,
+    stoploss_pct: 0.0008, target_pct: 0.0012, time_stop_seconds: 240
+  },
+  balanced: {
+    momentum_window: 16, delta_window: 10, imbalance_window: 8, depth_levels: 3, vwap_slope_window: 30,
+    imbalance_threshold_long: 0.60, imbalance_threshold_short: -0.60,
+    depth_ratio_min_long: 1.50, depth_ratio_max_short: 1/1.50,
+    delta_trend_ticks: 6,
+    require_hh_hl_for_long: true, require_ll_lh_for_short: true,
+    use_vwap_filter: true,
+    absorption_window: 15, absorption_min_traded_qty: 2000, absorption_max_price_range_bps: 4,
+    skip_first_minutes: 5, max_spread_pct: 0.0005, max_tick_jump_bps: 10,
+    cooldown_seconds: 60, max_trades_per_session: 3,
+    stoploss_pct: 0.0010, target_pct: 0.0010, time_stop_seconds: 180
+  },
+  aggressive: {
+    momentum_window: 12, delta_window: 8, imbalance_window: 6, depth_levels: 2, vwap_slope_window: 24,
+    imbalance_threshold_long: 0.50, imbalance_threshold_short: -0.50,
+    depth_ratio_min_long: 1.35, depth_ratio_max_short: 0.74,
+    delta_trend_ticks: 5,
+    require_hh_hl_for_long: true, require_ll_lh_for_short: true,
+    use_vwap_filter: true,
+    absorption_window: 12, absorption_min_traded_qty: 1500, absorption_max_price_range_bps: 5,
+    skip_first_minutes: 4, max_spread_pct: 0.0007, max_tick_jump_bps: 12,
+    cooldown_seconds: 30, max_trades_per_session: 5,
+    stoploss_pct: 0.0012, target_pct: 0.0008, time_stop_seconds: 150
+  },
+  very_aggressive: {
+    momentum_window: 8, delta_window: 6, imbalance_window: 4, depth_levels: 1, vwap_slope_window: 16,
+    imbalance_threshold_long: 0.45, imbalance_threshold_short: -0.45,
+    depth_ratio_min_long: 1.25, depth_ratio_max_short: 0.80,
+    delta_trend_ticks: 4,
+    require_hh_hl_for_long: false, require_ll_lh_for_short: false,
+    use_vwap_filter: false,
+    absorption_window: 10, absorption_min_traded_qty: 1000, absorption_max_price_range_bps: 6,
+    skip_first_minutes: 3, max_spread_pct: 0.0010, max_tick_jump_bps: 15,
+    cooldown_seconds: 15, max_trades_per_session: 7,
+    stoploss_pct: 0.0015, target_pct: 0.0007, time_stop_seconds: 90
+  }
+};
+
+async function applyPreset(name) {
+  const payload = PRESETS[name];
+  if (!payload) return;
+  const r = await fetch("{{ url_for('strategy_config_post') }}", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  const out = await r.json();
+  if (out.effective) populateForm(out.effective);
+  const note = document.getElementById("cfg-status");
+  note.textContent = (out.note || "Preset applied.") + (out.rebuild_required ? " → Stop & Start Feed to apply window changes." : "");
+}
+
+// Wire buttons & load on entry
+document.getElementById("cfg-save").addEventListener("click", saveConfigForm);
+document.getElementById("cfg-reset").addEventListener("click", resetConfig);
+document.querySelectorAll('[data-preset]').forEach(btn => {
+  btn.addEventListener('click', () => applyPreset(btn.getAttribute('data-preset')));
+});
+loadConfigForm();
+</script>
+{% endblock %}

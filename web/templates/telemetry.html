@@ -1,0 +1,163 @@
+<!-- templates/telemetry.html -->
+{% extends "base.html" %}
+{% block title %}Telemetry • Algo Bot{% endblock %}
+{% block content %}
+
+<div class="page-header mb-3">
+  <h4 class="mb-0">Strategy Telemetry</h4>
+  <span class="badge bg-info">live</span>
+</div>
+
+<div class="card shadow-soft">
+  <div class="card-body">
+    <table class="table table-sm align-middle" id="diag-table">
+      <thead>
+        <tr>
+          <th>Symbol</th><th>Time</th>
+          <th class="text-end">Price</th><th class="text-end">VWAP</th>
+          <th class="text-end">Imb</th><th class="text-end">Depth R</th>
+          <th>Δ</th><th>Mom</th><th>Abs</th>
+          <th>Filters</th><th>Signal</th><th>Decision</th><th>Pos</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="text-muted small">Click a row to view the last 20 evaluations.</div>
+  </div>
+</div>
+
+<!-- History modal -->
+<div class="modal fade" id="histModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title" id="histTitle">History</h6>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-sm" id="hist-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th class="text-end">Price</th>
+              <th class="text-end">VWAP</th>
+              <th class="text-end">Imb</th>
+              <th class="text-end">Depth R</th>
+              <th>Δ</th>
+              <th>Mom</th>
+              <th>Abs</th>
+              <th>Filters</th>
+              <th>Signal</th>
+              <th>Decision</th>
+              <th>Pos</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function badge(ok, text) {
+  if (ok === true)  return `<span class="badge bg-success">${text||"✓"}</span>`;
+  if (ok === false) return `<span class="badge bg-danger">${text||"✗"}</span>`;
+  return `<span class="badge bg-secondary">${text||"–"}</span>`;
+}
+function trendBadge(slope) {
+  if (slope === "up") return `<span class="badge bg-success">↑</span>`;
+  if (slope === "down") return `<span class="badge bg-danger">↓</span>`;
+  return `<span class="badge bg-secondary">·</span>`;
+}
+function formatDiagRow(sym, d) {
+  const ts = toIST(d.ts);
+  const price = (d.price ?? "-");
+  const vwap  = (d.vwap ?? "-");
+  const m = d.metrics || {};
+  const f = d.filters || {};
+  const g = d.signals || {};
+  const dec = d.decision || {};
+  const pos = d.position || {};
+  const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
+  const filterBadge = filterAll ? badge(true,"OK") : badge(false,"Fail");
+  const signalStr = g.long_ok ? "Long" : (g.short_ok ? "Short" : "—");
+  const mom = m.momentum || "–";
+  const absb = (m.absorption===true);
+
+  const actionCell = `
+    <form method="post" action="/squareoff/${encodeURIComponent(sym)}"
+          onsubmit="return confirm('Square off ${sym}?');">
+      <button class="btn btn-sm btn-outline-warning">Square Off</button>
+    </form>`;
+
+  return `
+    <tr class="diag-row" data-symbol="${sym}" style="cursor:pointer">
+      <td>${sym}</td>
+      <td>${ts}</td>
+      <td class="text-end">${price}</td>
+      <td class="text-end">${vwap}</td>
+      <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
+      <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
+      <td>${trendBadge(m.delta_slope || "flat")}</td>
+      <td>${mom}</td>
+      <td>${absb ? badge(true) : badge(null)}</td>
+      <td>${filterBadge}</td>
+      <td>${signalStr}</td>
+      <td>${dec.action || "HOLD"}</td>
+      <td>${(pos.state || "FLAT")}</td>
+      <td>${actionCell}</td>
+    </tr>`;
+}
+
+async function refreshDiag() {
+  try {
+    const res = await fetch("{{ url_for('strategy_diag_all') }}");
+    const data = await res.json();
+    const tbody = document.querySelector("#diag-table tbody");
+    const syms = Object.keys(data).sort();
+    const rows = [];
+    for (const s of syms) rows.push(formatDiagRow(s, data[s]));
+    tbody.innerHTML = rows.join("");
+    // click → history
+    for (const tr of tbody.querySelectorAll("tr.diag-row")) {
+      tr.addEventListener("click", async () => {
+        const sym = tr.getAttribute("data-symbol");
+        const r = await fetch(`{{ url_for('strategy_diag') }}?symbol=${encodeURIComponent(sym)}&n=20`);
+        const payload = await r.json();
+        document.getElementById("histTitle").textContent = `History • ${payload.symbol}`;
+        const tbody2 = document.querySelector("#hist-table tbody");
+        const rows2 = [];
+        for (const d of (payload.items || [])) {
+          const m = d.metrics || {}, f = d.filters || {}, g = d.signals || {}, dec = d.decision || {}, p = d.position || {};
+          const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
+          rows2.push(`
+            <tr>
+              <td>${toIST(d.ts)}</td>
+              <td class="text-end">${d.price ?? "-"}</td>
+              <td class="text-end">${d.vwap ?? "-"}</td>
+              <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
+              <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
+              <td>${(m.delta_slope==="up"?"↑":(m.delta_slope==="down"?"↓":"·"))}</td>
+              <td>${m.momentum || "–"}</td>
+              <td>${m.absorption===true ? "✓" : "·"}</td>
+              <td>${filterAll ? "OK" : "Fail"}</td>
+              <td>${g.long_ok ? "Long" : (g.short_ok ? "Short" : "—")}</td>
+              <td>${dec.action || "HOLD"}</td>
+              <td>${p.state || "FLAT"}</td>
+            </tr>`);
+        }
+        tbody2.innerHTML = rows2.join("");
+        new bootstrap.Modal(document.getElementById("histModal")).show();
+      });
+    }
+  } catch (e) {}
+}
+setInterval(refreshDiag, 2000);
+</script>
+{% endblock %}
+

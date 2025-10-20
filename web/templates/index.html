@@ -1,678 +1,77 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>Algo Bot • Home</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-<nav class="navbar navbar-dark bg-dark">
-  <div class="container">
-    <span class="navbar-brand">Zerodha Algo Bot</span>
-  </div>
-</nav>
+<!-- templates/index.html -->
+{% extends "base.html" %}
+{% block title %}Dashboard • Algo Bot{% endblock %}
+{% block content %}
 
-<div class="container py-4">
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      <div class="mb-3">
-        {% for cat, msg in messages %}
-          <div class="alert alert-{{ 'warning' if cat=='message' else cat }} mb-2">{{ msg }}</div>
-        {% endfor %}
-      </div>
-    {% endif %}
-  {% endwith %}
+<div class="page-header mb-3">
+  <h4 class="mb-0">Dashboard</h4>
+  <span class="badge bg-info">live</span>
+</div>
 
-  <div class="card shadow-sm mb-3">
-    <div class="card-body d-flex flex-wrap align-items-center gap-3">
-      <div>Broker status: <strong>{{ status }}</strong></div>
-      <div>Feed:
-        {% if feed_running %}
-          <span class="badge bg-success">Running</span>
+<div class="card shadow-soft mb-4">
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      {% if not connected %}
+        <a class="btn btn-primary" href="{{ url_for('connect') }}">Connect Zerodha</a>
+      {% else %}
+        {% if not feed_running %}
+          <form class="d-inline" method="post" action="{{ url_for('feed_start') }}">
+            <button class="btn btn-success" type="submit">Start Feed</button>
+          </form>
         {% else %}
-          <span class="badge bg-secondary">Stopped</span>
-        {% endif %}
-      </div>
-
-      <div class="ms-auto">
-        {% if not connected %}
-          <a class="btn btn-primary" href="{{ url_for('connect') }}">Connect Zerodha</a>
-        {% else %}
-          {% if not feed_running %}
-            <form class="d-inline" method="post" action="{{ url_for('feed_start') }}">
-              <button class="btn btn-success" type="submit">Start Feed</button>
-            </form>
-          {% else %}
-            <form class="d-inline" method="post" action="{{ url_for('feed_stop') }}">
-              <button class="btn btn-outline-danger" type="submit">Stop Feed</button>
-            </form>
-          {% endif %}
-          <form class="d-inline" method="post" action="{{ url_for('disconnect') }}">
-            <button class="btn btn-outline-secondary" type="submit">Disconnect</button>
+          <form class="d-inline" method="post" action="{{ url_for('feed_stop') }}">
+            <button class="btn btn-outline-danger" type="submit">Stop Feed</button>
           </form>
         {% endif %}
-      </div>
-      <form class="d-inline" method="post" action="{{ url_for('square_off_all') }}"
-      onsubmit="return confirm('Square off ALL open positions?');">
-  <button class="btn btn-warning" type="submit">Square Off All</button>
-</form>
-
+        <form class="d-inline" method="post" action="{{ url_for('disconnect') }}">
+          <button class="btn btn-outline-secondary" type="submit">Disconnect</button>
+        </form>
+      {% endif %}
     </div>
-  </div>
 
-  <!-- Latest Prices (unchanged) -->
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <h5 class="card-title">Latest Prices</h5>
-      <table class="table table-sm align-middle" id="ticks-table">
-        <thead><tr><th>Symbol</th><th class="text-end">Last Price</th><th>Time (IST)</th></tr></thead>
-          <tbody>
-            {% for s in symbols %}
-              <tr>
-                <td>{{ s }}</td>
-                <td class="text-end">{{ last.get(s, '-') }}</td>
-                <td>—</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-      </table>
-      <div class="text-muted small">Auto-refreshing every 2 seconds.</div>
-    </div>
-  </div>
-
-  
-
-  <!-- Strategy Telemetry -->
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <div class="d-flex align-items-center mb-2">
-        <h5 class="card-title mb-0">Strategy Telemetry</h5>
-        <span class="ms-2 badge bg-info">live</span>
-      </div>
-
-      <table class="table table-sm align-middle" id="diag-table">
-        <thead>
+    <h5 class="card-title">Latest Prices</h5>
+    <table class="table table-sm align-middle" id="ticks-table">
+      <thead>
+        <tr><th>Symbol</th><th class="text-end">Last Price</th><th class="text-end">Time (IST)</th></tr>
+      </thead>
+      <tbody>
+        {% for s in symbols %}
           <tr>
-            <th>Symbol</th>
-            <th>Time</th>
-            <th class="text-end">Price</th>
-            <th class="text-end">VWAP</th>
-            <th class="text-end">Imb</th>
-            <th class="text-end">Depth R</th>
-            <th>Δ</th>
-            <th>Mom</th>
-            <th>Abs</th>
-            <th>Filters</th>
-            <th>Signal</th>
-            <th>Decision</th>
-            <th>Pos</th>
+            <td>{{ s }}</td>
+            <td class="text-end">{{ last.get(s, '-') }}</td>
+            <td class="text-end">—</td>
           </tr>
-        </thead>
-        <tbody><!-- populated by JS --></tbody>
-      </table>
-      <div class="text-muted small">Click a row to view the last 20 evaluations.</div>
-    </div>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="text-muted small">Auto-refreshing every 2 seconds.</div>
   </div>
 </div>
 
-<!-- Modal: per-symbol history -->
-<div class="modal fade" id="histModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h6 class="modal-title" id="histTitle">History</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <table class="table table-sm" id="hist-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th class="text-end">Price</th>
-              <th class="text-end">VWAP</th>
-              <th class="text-end">Imb</th>
-              <th class="text-end">Depth R</th>
-              <th>Δ</th>
-              <th>Mom</th>
-              <th>Abs</th>
-              <th>Filters</th>
-              <th>Signal</th>
-              <th>Decision</th>
-              <th>Pos</th>
-            </tr>
-          </thead>
-          <tbody><!-- populated by JS --></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
+{% endblock %}
 
-<div class="card shadow-sm mb-4">
-  <div class="card-body">
-    <div class="d-flex align-items-center mb-2">
-      <h5 class="card-title mb-0">Strategy Config</h5>
-      <span id="cfg-note" class="ms-2 small text-muted"></span>
-    </div>
-
-    <form id="cfg-form" class="row g-3">
-      <!-- Core windows -->
-      <div class="col-6 col-md-3">
-        <label class="form-label">Momentum window</label>
-        <input type="number" class="form-control" name="momentum_window" min="3" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Delta window</label>
-        <input type="number" class="form-control" name="delta_window" min="3" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Imbalance window</label>
-        <input type="number" class="form-control" name="imbalance_window" min="3" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Depth levels</label>
-        <input type="number" class="form-control" name="depth_levels" min="1" max="5" step="1">
-      </div>
-
-      <!-- Thresholds -->
-      <div class="col-6 col-md-3">
-        <label class="form-label">Imbalance long ≥</label>
-        <input type="number" class="form-control" name="imbalance_threshold_long" step="0.01">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Imbalance short ≤</label>
-        <input type="number" class="form-control" name="imbalance_threshold_short" step="0.01">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Depth ratio min (long)</label>
-        <input type="number" class="form-control" name="depth_ratio_min_long" step="0.01">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Depth ratio max (short)</label>
-        <input type="number" class="form-control" name="depth_ratio_max_short" step="0.01">
-      </div>
-
-      <div class="col-6 col-md-3">
-        <label class="form-label">Delta trend ticks</label>
-        <input type="number" class="form-control" name="delta_trend_ticks" min="2" step="1">
-      </div>
-      <div class="col-6 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" name="require_hh_hl_for_long" id="hhhl">
-        <label class="form-check-label" for="hhhl">Require HHHL (long)</label>
-      </div>
-      <div class="col-6 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" name="require_ll_lh_for_short" id="lllh">
-        <label class="form-check-label" for="lllh">Require LLLH (short)</label>
-      </div>
-
-      <!-- VWAP / Trend -->
-      <div class="col-6 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" name="use_vwap_filter" id="vwapf">
-        <label class="form-check-label" for="vwapf">Use VWAP filter</label>
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">VWAP slope window</label>
-        <input type="number" class="form-control" name="vwap_slope_window" min="2" step="1">
-      </div>
-
-      <!-- Absorption -->
-      <div class="col-6 col-md-3">
-        <label class="form-label">Absorption window</label>
-        <input type="number" class="form-control" name="absorption_window" min="3" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Absorption min qty</label>
-        <input type="number" class="form-control" name="absorption_min_traded_qty" min="0" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Absorption max range (bps)</label>
-        <input type="number" class="form-control" name="absorption_max_price_range_bps" min="1" step="1">
-      </div>
-
-      <!-- Filters / market quality -->
-      <div class="col-6 col-md-3">
-        <label class="form-label">Skip first minutes</label>
-        <input type="number" class="form-control" name="skip_first_minutes" min="0" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Max spread % (e.g., 0.0005)</label>
-        <input type="number" class="form-control" name="max_spread_pct" min="0" step="0.0001">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Max tick jump (bps)</label>
-        <input type="number" class="form-control" name="max_tick_jump_bps" min="1" step="1">
-      </div>
-
-      <!-- Risk / execution -->
-      <div class="col-6 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" name="dry_run" id="dryrun">
-        <label class="form-check-label" for="dryrun">Dry run (no live orders)</label>
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Qty</label>
-        <input type="number" class="form-control" name="qty" min="1" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Stoploss % (e.g., 0.001)</label>
-        <input type="number" class="form-control" name="stoploss_pct" min="0" step="0.0001">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Cooldown seconds</label>
-        <input type="number" class="form-control" name="cooldown_seconds" min="0" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Max trades per session</label>
-        <input type="number" class="form-control" name="max_trades_per_session" min="1" step="1">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Target % (e.g., 0.001)</label>
-        <input type="number" class="form-control" name="target_pct" min="0" step="0.0001">
-      </div>
-      <div class="col-6 col-md-3">
-        <label class="form-label">Time stop (sec)</label>
-        <input type="number" class="form-control" name="time_stop_seconds" min="0" step="1">
-      </div>
-
-      <div class="col-12">
-        <button type="button" class="btn btn-primary" id="cfg-save">Save</button>
-        <button type="button" class="btn btn-outline-secondary" id="cfg-reset">Reset to base</button>
-        <span id="cfg-status" class="ms-2 small"></span>
-      </div>
-    </form>
-  </div>
-  <div class="d-flex align-items-center mb-2">
-  <h5 class="card-title mb-0">Strategy Config</h5>
-  <span id="cfg-note" class="ms-2 small text-muted"></span>
-
-  <!-- Preset buttons -->
-  <div class="ms-auto btn-group btn-group-sm">
-    <button type="button" class="btn btn-outline-secondary" data-preset="defensive">Defensive</button>
-    <button type="button" class="btn btn-outline-secondary" data-preset="balanced">Balanced</button>
-    <button type="button" class="btn btn-outline-secondary" data-preset="aggressive">Aggressive</button>
-    <button type="button" class="btn btn-outline-secondary" data-preset="very_aggressive">Very Aggressive</button>
-  </div>
-</div>
-
-</div>
-
-
+{% block scripts %}
 <script>
 async function refreshPrices() {
   try {
     const res = await fetch("{{ url_for('feed_status') }}");
     const data = await res.json();
     const tbody = document.querySelector("#ticks-table tbody");
-
+    const rows = [];
     const last = data.last || {};
     const last_ts = data.last_ts || {};
     const symbols = Object.keys(last).sort();
-
-    const rows = [];
     for (const s of symbols) {
-      const ts = last_ts[s] || "";
-      let istTime = "-";
-
-      if (ts) {
-        try {
-          // Parse to Date object
-          // NEW: treat incoming as UTC to avoid local timezone issues
-          // If string lacks timezone, append "Z" (UTC)
-          const iso = ts.endsWith("Z") || ts.includes("+") ? ts : ts + "Z";
-          const d = new Date(iso);
-
-          // Convert to IST (UTC+5:30)
-          d.setMinutes(d.getMinutes() + 330); // 5*60 + 30 = 330
-
-          istTime = d.toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-          });
-        } catch (e) {
-          istTime = ts;
-        }
-      }
-
-      rows.push(
-        `<tr>
+      rows.push(`
+        <tr>
           <td>${s}</td>
           <td class="text-end">${last[s]}</td>
-          <td class="text-end">${istTime}</td>
-        </tr>`
-      );
+          <td class="text-end">${toIST(last_ts[s] || "")}</td>
+        </tr>`);
     }
-
     if (rows.length) tbody.innerHTML = rows.join("");
   } catch (e) {}
 }
-
-
-function badge(ok, text) {
-  if (ok === true)  return `<span class="badge bg-success">${text||"✓"}</span>`;
-  if (ok === false) return `<span class="badge bg-danger">${text||"✗"}</span>`;
-  return `<span class="badge bg-secondary">${text||"–"}</span>`;
-}
-function trendBadge(slope) {
-  if (slope === "up") return `<span class="badge bg-success">↑</span>`;
-  if (slope === "down") return `<span class="badge bg-danger">↓</span>`;
-  return `<span class="badge bg-secondary">·</span>`;
-}
-
-function formatDiagRow(sym, d) {
-  const ts = d.ts || "";
-  const price = (d.price ?? "-");
-  const vwap  = (d.vwap ?? "-");
-  const m = d.metrics || {};
-  const f = d.filters || {};
-  const g = d.signals || {};
-  const dec = d.decision || {};
-  const pos = d.position || {};
-
-  const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
-  const filterBadge = filterAll ? badge(true,"OK") : badge(false,"Fail");
-
-  const signalStr = g.long_ok ? "Long" : (g.short_ok ? "Short" : "—");
-  const mom = m.momentum || "–";
-  const absb = (m.absorption===true);
-
-  return `
-    <tr class="diag-row" data-symbol="${sym}" style="cursor:pointer">
-      <td>${sym}</td>
-      <td>${ts}</td>
-      <td class="text-end">${price}</td>
-      <td class="text-end">${vwap}</td>
-      <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
-      <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
-      <td>${trendBadge(m.delta_slope || "flat")}</td>
-      <td>${mom}</td>
-      <td>${absb ? badge(true) : badge(null)}</td>
-      <td>${filterBadge}</td>
-      <td>${signalStr}</td>
-      <td>${dec.action || "HOLD"}</td>
-      <td>${(pos.state || "FLAT")}</td>
-    </tr>`;
-}
-
-async function refreshDiag() {
-  try {
-    const res = await fetch("{{ url_for('strategy_diag_all') }}");
-    const data = await res.json();
-    const tbody = document.querySelector("#diag-table tbody");
-    const syms = Object.keys(data).sort();
-    const rows = [];
-    for (const s of syms) {
-      rows.push(formatDiagRow(s, data[s]));
-    }
-    tbody.innerHTML = rows.join("");
-
-    // attach click -> history
-    for (const tr of tbody.querySelectorAll("tr.diag-row")) {
-      tr.addEventListener("click", async () => {
-        const sym = tr.getAttribute("data-symbol");
-        await showHistory(sym);
-      });
-    }
-  } catch (e) {}
-}
-
-async function showHistory(symbol) {
-  try {
-    const res = await fetch(`{{ url_for('strategy_diag') }}?symbol=${encodeURIComponent(symbol)}&n=20`);
-    const payload = await res.json();
-    document.getElementById("histTitle").textContent = `History • ${payload.symbol}`;
-    const tbody = document.querySelector("#hist-table tbody");
-    const rows = [];
-    for (const d of (payload.items || [])) {
-      const m = d.metrics || {}, f = d.filters || {}, g = d.signals || {}, dec = d.decision || {}, p = d.position || {};
-      const filterAll = (f.session_ok && f.vwap_ok && f.spread_ok && f.jump_ok);
-      rows.push(`
-        <tr>
-          <td>${d.ts || ""}</td>
-          <td class="text-end">${d.price ?? "-"}</td>
-          <td class="text-end">${d.vwap ?? "-"}</td>
-          <td class="text-end">${m.imb_avg?.toFixed?.(2) ?? "-"}</td>
-          <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
-          <td>${(m.delta_slope==="up"?"↑":(m.delta_slope==="down"?"↓":"·"))}</td>
-          <td>${m.momentum || "–"}</td>
-          <td>${m.absorption===true ? "✓" : "x"}</td>
-          <td>${filterAll ? "OK" : "Fail"}</td>
-          <td>${g.long_ok ? "Long" : (g.short_ok ? "Short" : "—")}</td>
-          <td>${dec.action || "HOLD"}</td>
-          <td>${p.state || "FLAT"}</td>
-        </tr>
-      `);
-    }
-    tbody.innerHTML = rows.join("");
-    const modal = new bootstrap.Modal(document.getElementById("histModal"));
-    modal.show();
-  } catch (e) {}
-}
-
 setInterval(refreshPrices, 2000);
-setInterval(refreshDiag, 2000);
-
 </script>
-<script>
-async function loadConfigForm() {
-  const r = await fetch("{{ url_for('strategy_config_get') }}");
-  const data = await r.json();
-  const eff = data.effective || {};
-  const form = document.getElementById("cfg-form");
-  for (const el of form.elements) {
-    if (!el.name) continue;
-    const val = eff[el.name];
-    if (typeof val === "boolean") el.checked = !!val;
-    else if (val !== undefined) el.value = val;
-  }
-}
-
-async function saveConfigForm() {
-  const form = document.getElementById("cfg-form");
-  const payload = {};
-  for (const el of form.elements) {
-    if (!el.name) continue;
-    if (el.type === "checkbox") payload[el.name] = el.checked;
-    else if (el.type === "number") payload[el.name] = el.value === "" ? null : Number(el.value);
-    else payload[el.name] = el.value;
-  }
-  const r = await fetch("{{ url_for('strategy_config_post') }}", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  const out = await r.json();
-  const note = document.getElementById("cfg-status");
-  note.textContent = out.note || (out.ok ? "Saved." : "Failed.");
-  if (out.rebuild_required) {
-    note.textContent += " → Please Stop Feed and Start Feed to apply window changes.";
-  }
-}
-
-async function resetConfig() {
-  const r = await fetch("{{ url_for('strategy_config_reset') }}", { method: "POST" });
-  const out = await r.json();
-  document.getElementById("cfg-status").textContent = out.message || "Reset.";
-  await loadConfigForm();
-}
-
-document.getElementById("cfg-save").addEventListener("click", saveConfigForm);
-document.getElementById("cfg-reset").addEventListener("click", resetConfig);
-
-loadConfigForm();
-</script>
-
-<script>
-/** Populate form inputs from a config object */
-function populateForm(cfg) {
-  const form = document.getElementById("cfg-form");
-  for (const el of form.elements) {
-    if (!el.name) continue;
-    const val = cfg[el.name];
-    if (typeof val === "boolean") el.checked = !!val;
-    else if (val !== undefined && val !== null) el.value = val;
-  }
-}
-
-/** Presets. 
- * NOTE: changing window sizes (momentum/delta/imbalance/depth_levels/vwap_slope/absorption_window)
- * will trigger `rebuild_required` → Stop Feed & Start Feed to apply.
- * Qty/dry_run left untouched here; tweak if you want.
- */
-const PRESETS = {
-  defensive: {
-    // windows (STRCUTURAL → restart feed to apply)
-    momentum_window: 24,
-    delta_window: 14,
-    imbalance_window: 10,
-    depth_levels: 4,
-    vwap_slope_window: 30,
-    // thresholds
-    imbalance_threshold_long: 0.65,
-    imbalance_threshold_short: -0.65,
-    depth_ratio_min_long: 1.60,
-    depth_ratio_max_short: 0.62,
-    delta_trend_ticks: 7,
-    require_hh_hl_for_long: true,
-    require_ll_lh_for_short: true,
-    // vwap
-    use_vwap_filter: true,
-    // absorption (kept same as base unless you want stricter)
-    // market quality
-    skip_first_minutes: 7,
-    max_spread_pct: 0.0004,
-    max_tick_jump_bps: 8,
-    // risk / execution
-    cooldown_seconds: 90,
-    max_trades_per_session: 2,
-    stoploss_pct: 0.0008,
-    target_pct: 0.0012,
-    time_stop_seconds: 240
-  },
-  balanced: {
-    momentum_window: 16,
-    delta_window: 10,
-    imbalance_window: 8,
-    depth_levels: 3,
-    vwap_slope_window: 30,
-    imbalance_threshold_long: 0.60,
-    imbalance_threshold_short: -0.60,
-    depth_ratio_min_long: 1.50,
-    depth_ratio_max_short: 1/1.50,
-    delta_trend_ticks: 6,
-    require_hh_hl_for_long: true,
-    require_ll_lh_for_short: true,
-    use_vwap_filter: true,
-    absorption_window: 15,                    // structural
-    absorption_min_traded_qty: 2000,
-    absorption_max_price_range_bps: 4,
-    skip_first_minutes: 5,
-    max_spread_pct: 0.0005,
-    max_tick_jump_bps: 10,
-    cooldown_seconds: 60,
-    max_trades_per_session: 3,
-    stoploss_pct: 0.0010,
-    target_pct: 0.0010,
-    time_stop_seconds: 180
-  },
-  aggressive: {
-    momentum_window: 12,
-    delta_window: 8,
-    imbalance_window: 6,
-    depth_levels: 2,
-    vwap_slope_window: 24,
-    imbalance_threshold_long: 0.50,
-    imbalance_threshold_short: -0.50,
-    depth_ratio_min_long: 1.35,
-    depth_ratio_max_short: 0.74,
-    delta_trend_ticks: 5,
-    require_hh_hl_for_long: true,
-    require_ll_lh_for_short: true,
-    use_vwap_filter: true,   // keep on for some discipline
-    absorption_window: 12,   // structural
-    absorption_min_traded_qty: 1500,
-    absorption_max_price_range_bps: 5,
-    skip_first_minutes: 4,
-    max_spread_pct: 0.0007,
-    max_tick_jump_bps: 12,
-    cooldown_seconds: 30,
-    max_trades_per_session: 5,
-    stoploss_pct: 0.0012,
-    target_pct: 0.0008,
-    time_stop_seconds: 150
-  },
-  very_aggressive: {
-    momentum_window: 8,
-    delta_window: 6,
-    imbalance_window: 4,
-    depth_levels: 1,
-    vwap_slope_window: 16,
-    imbalance_threshold_long: 0.45,
-    imbalance_threshold_short: -0.45,
-    depth_ratio_min_long: 1.25,
-    depth_ratio_max_short: 0.80,
-    delta_trend_ticks: 4,
-    require_hh_hl_for_long: false,
-    require_ll_lh_for_short: false,
-    use_vwap_filter: false,  // off → more trades, less accuracy
-    absorption_window: 10,   // structural
-    absorption_min_traded_qty: 1000,
-    absorption_max_price_range_bps: 6,
-    skip_first_minutes: 3,
-    max_spread_pct: 0.0010,
-    max_tick_jump_bps: 15,
-    cooldown_seconds: 15,
-    max_trades_per_session: 7,
-    stoploss_pct: 0.0015,
-    target_pct: 0.0007,
-    time_stop_seconds: 90
-  }
-};
-
-async function applyPreset(name) {
-  const payload = PRESETS[name];
-  if (!payload) return;
-
-  const r = await fetch("{{ url_for('strategy_config_post') }}", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  const out = await r.json();
-  // Reflect effective values in the form
-  if (out.effective) populateForm(out.effective);
-
-  const note = document.getElementById("cfg-status");
-  note.textContent = (out.note || "Preset applied.") + (out.rebuild_required ? " → Stop & Start Feed to apply window changes." : "");
-}
-
-// Wire buttons
-document.querySelectorAll('[data-preset]').forEach(btn => {
-  btn.addEventListener('click', () => applyPreset(btn.getAttribute('data-preset')));
-});
-</script>
-
-<script>
-function toIST(ts) {
-  if (!ts) return "-";
-
-  // If it’s already a simple clock string (no date), show as-is
-  if (!ts.includes("T")) return ts;
-
-  // Let the browser parse ISO and render explicitly in Asia/Kolkata
-  const d = new Date(ts);              // works with “…Z” or “…+05:30” too
-  if (isNaN(d)) return ts;
-
-  return new Intl.DateTimeFormat("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "Asia/Kolkata"
-  }).format(d);
-}
-</script>
-
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+{% endblock %}

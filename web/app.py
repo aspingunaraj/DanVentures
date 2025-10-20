@@ -158,14 +158,14 @@ def home():
     with _feed_lock:
         symbols = sorted(list(_last.keys()))
         last = dict(_last)
-    return render_template(
-        "index.html",
-        connected=bool(access_token),
-        status=status,
-        feed_running=feed_running,
-        symbols=symbols,
-        last=last
-    )
+    return render_template("index.html",
+                           active="dashboard",
+                           connected=bool(access_token),
+                           status=status,
+                           feed_running=feed_running,
+                           symbols=symbols,
+                           last=last)
+
 
 @app.route("/connect")
 def connect():
@@ -500,6 +500,33 @@ def square_off_symbol(symbol):
     return redirect(url_for("home"))
 
 
+# add near the other routes
+@app.route("/telemetry")
+def telemetry_page():
+    access_token = _broker.load_access_token()
+    feed_running = _stream is not None
+    return render_template("telemetry.html",
+                           active="telemetry",
+                           connected=bool(access_token),
+                           feed_running=feed_running)
+
+@app.route("/config/ui")
+def config_page():
+    access_token = _broker.load_access_token()
+    feed_running = _stream is not None
+    return render_template("config.html",
+                           active="config",
+                           connected=bool(access_token),
+                           feed_running=feed_running)
+
+@app.route("/actions")
+def actions_page():
+    access_token = _broker.load_access_token()
+    feed_running = _stream is not None
+    return render_template("actions.html",
+                           active="actions",
+                           connected=bool(access_token),
+                           feed_running=feed_running)
 
 
 

@@ -1,0 +1,50 @@
+<!-- templates/actions.html -->
+{% extends "base.html" %}
+{% block title %}Actions • Algo Bot{% endblock %}
+{% block content %}
+
+<div class="page-header mb-3">
+  <h4 class="mb-0">Actions</h4>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card shadow-soft">
+      <div class="card-body">
+        <h5 class="card-title">Feed Controls</h5>
+        <div class="d-flex flex-wrap gap-2">
+          {% if not feed_running %}
+            <form method="post" action="{{ url_for('feed_start') }}">
+              <button class="btn btn-success">Start Feed</button>
+            </form>
+          {% else %}
+            <form method="post" action="{{ url_for('feed_stop') }}">
+              <button class="btn btn-outline-danger">Stop Feed</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-soft">
+      <div class="card-body">
+        <h5 class="card-title">Broker</h5>
+        <div class="d-flex flex-wrap gap-2">
+          {% if not connected %}
+            <a class="btn btn-primary" href="{{ url_for('connect') }}">Connect Zerodha</a>
+          {% endif %}
+          <form method="post" action="{{ url_for('disconnect') }}">
+            <button class="btn btn-outline-secondary">Disconnect</button>
+          </form>
+          <form method="post" action="{{ url_for('square_off_all') }}"
+                onsubmit="return confirm('Square off ALL open positions?');">
+            <button class="btn btn-warning">Square Off All</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
