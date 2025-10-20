@@ -253,7 +253,7 @@ async function showHistory(symbol) {
           <td class="text-end">${m.depth_ratio?.toFixed?.(2) ?? "-"}</td>
           <td>${(m.delta_slope==="up"?"↑":(m.delta_slope==="down"?"↓":"·"))}</td>
           <td>${m.momentum || "–"}</td>
-          <td>${m.absorption===true ? "✓" : "·"}</td>
+          <td>${m.absorption===true ? "✓" : "x"}</td>
           <td>${filterAll ? "OK" : "Fail"}</td>
           <td>${g.long_ok ? "Long" : (g.short_ok ? "Short" : "—")}</td>
           <td>${dec.action || "HOLD"}</td>
