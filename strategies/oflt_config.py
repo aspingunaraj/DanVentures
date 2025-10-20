@@ -52,12 +52,12 @@ CONFIG = {
     # ---------- PRE-TRADE FILTERS ----------
     # Trading session time filters (India time). Strings "HH:MM" 24h.
     "skip_first_minutes": 5,            # ignore first X minutes after 09:15
-    "lunch_skip_start": "13:15",
+    "lunch_skip_start": "13:29",
     "lunch_skip_end":   "13:30",
 
     # Best trading windows (if you want to restrict)
     "use_best_windows": True,
-    "best_windows": [("09:20", "13:15"), ("13:30", "14:45")],
+    "best_windows": [("09:20", "13:29"), ("13:30", "14:45")],
 
     # Spread filter: skip if best ask - best bid > max_spread_pct * mid
     "max_spread_pct": 0.0005,           # 0.05%

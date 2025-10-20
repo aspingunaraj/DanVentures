@@ -61,7 +61,7 @@
     <div class="card-body">
       <h5 class="card-title">Latest Prices</h5>
       <table class="table table-sm align-middle" id="ticks-table">
-        <thead><tr><th>Symbol</th><th class="text-end">Last Price</th><th>Time</th></tr></thead>
+        <thead><tr><th>Symbol</th><th class="text-end">Last Price</th><th>Time (IST)</th></tr></thead>
           <tbody>
             {% for s in symbols %}
               <tr>
@@ -298,23 +298,50 @@ async function refreshPrices() {
     const res = await fetch("{{ url_for('feed_status') }}");
     const data = await res.json();
     const tbody = document.querySelector("#ticks-table tbody");
-    const rows = [];
+
     const last = data.last || {};
-    const lastTs = data.last_ts || {};       // NEW
+    const last_ts = data.last_ts || {};
     const symbols = Object.keys(last).sort();
+
+    const rows = [];
     for (const s of symbols) {
-      const ts = lastTs[s] || "—";
-      rows.push(`
-        <tr>
+      const ts = last_ts[s] || "";
+      let istTime = "-";
+
+      if (ts) {
+        try {
+          // Parse to Date object
+          // NEW: treat incoming as UTC to avoid local timezone issues
+          // If string lacks timezone, append "Z" (UTC)
+          const iso = ts.endsWith("Z") || ts.includes("+") ? ts : ts + "Z";
+          const d = new Date(iso);
+
+          // Convert to IST (UTC+5:30)
+          d.setMinutes(d.getMinutes() + 330); // 5*60 + 30 = 330
+
+          istTime = d.toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          });
+        } catch (e) {
+          istTime = ts;
+        }
+      }
+
+      rows.push(
+        `<tr>
           <td>${s}</td>
           <td class="text-end">${last[s]}</td>
-          <td>${ts}</td>
-        </tr>
-      `);
+          <td class="text-end">${istTime}</td>
+        </tr>`
+      );
     }
+
     if (rows.length) tbody.innerHTML = rows.join("");
   } catch (e) {}
 }
+
 
 function badge(ok, text) {
   if (ok === true)  return `<span class="badge bg-success">${text||"✓"}</span>`;
