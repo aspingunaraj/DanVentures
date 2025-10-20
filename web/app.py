@@ -158,13 +158,17 @@ def home():
     with _feed_lock:
         symbols = sorted(list(_last.keys()))
         last = dict(_last)
-    return render_template("index.html",
-                           active="dashboard",
-                           connected=bool(access_token),
-                           status=status,
-                           feed_running=feed_running,
-                           symbols=symbols,
-                           last=last)
+
+    return render_template(
+        "index.html",
+        connected=bool(access_token),
+        status=status,
+        feed_running=feed_running,
+        symbols=symbols,
+        last=last,
+        access_token=access_token,   # <-- add this line
+    )
+
 
 
 @app.route("/connect")

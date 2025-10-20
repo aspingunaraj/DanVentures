@@ -48,6 +48,16 @@
   </div>
 </div>
 
+<div class="w-100"></div>
+<div class="alert alert-warning d-flex align-items-center py-2 px-3 mt-2" role="alert" style="max-width:100%;">
+  <div class="me-2 fw-semibold">Access Token:</div>
+  <code id="fullTok" class="text-break" style="user-select:all;">
+    {{ access_token or "(no token)" }}
+  </code>
+  <button id="copyTokBtn" class="btn btn-sm btn-outline-dark ms-3">Copy</button>
+</div>
+
+
 {% endblock %}
 
 {% block scripts %}
@@ -74,4 +84,20 @@ async function refreshPrices() {
 }
 setInterval(refreshPrices, 2000);
 </script>
+
+<script>
+document.getElementById("copyTokBtn")?.addEventListener("click", async () => {
+  const el = document.getElementById("fullTok");
+  const tok = el?.innerText?.trim();
+  if (!tok || tok === "(no token)") return;
+  try {
+    await navigator.clipboard.writeText(tok);
+    // quick visual feedback
+    const old = event.target.textContent;
+    event.target.textContent = "Copied!";
+    setTimeout(()=> event.target.textContent = old, 1200);
+  } catch (e) {}
+});
+</script>
+
 {% endblock %}
