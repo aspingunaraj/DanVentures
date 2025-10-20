@@ -7,6 +7,7 @@ from strategies.base import StrategyBase
 from strategies.oflt_config import CONFIG
 
 
+
 class OrderFlowLiquidityTrap(StrategyBase):
     """
     Intraday scalping: Order Flow + Momentum + Liquidity Trap.
@@ -49,6 +50,10 @@ class OrderFlowLiquidityTrap(StrategyBase):
         self.trades_taken: int = 0
 
     # ------------------- Tick processing -------------------
+    def round_to_tick(value, tick=0.10):
+        return round(round(value / tick) * tick, 2)
+
+
     def on_tick(self, tick: Dict[str, Any]):
         tok = self.ctx.tokens.get(self.symbol)
         if not tok or tick.get("instrument_token") != tok:
@@ -270,6 +275,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
     def _enter(self, side: str, price: float):
         sl_pct = float(self.cfg["stoploss_pct"])
         sl_trig = round(price * (1.0 - sl_pct), 2) if side == "BUY" else round(price * (1.0 + sl_pct), 2)
+        sl_trig = self.round_to_tick(sl_trig, tick=0.10)
         qty = int(self.cfg["qty"])
         dry = bool(self.cfg["dry_run"])
 
@@ -279,7 +285,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
         self.entry_price = float(price)
         self.last_entry_ts = dt.datetime.now(self.ctx.tz).timestamp()
         self.trades_taken += 1
-
+      
         if dry:
             self.parent_order_id = "DRY_PARENT"
             return
@@ -302,6 +308,7 @@ class OrderFlowLiquidityTrap(StrategyBase):
             self.position = None
             self.entry_price = None
             self.parent_order_id = None
+
 
     def _exit(self, reason: str):
         if not self.position:
